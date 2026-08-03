@@ -1,0 +1,19 @@
+DEST?=_site
+
+all: lua
+
+deps: node_modules/.bin/tstl
+
+node_modules/.bin/tstl: package.json
+	npm i
+
+lua: deps
+	node_modules/.bin/tstl
+	mkdir -p $(DEST)/SCRIPTS
+	mkdir -p $(DEST)/IMAGES
+	cp -f src/breakout.lua $(DEST)/SCRIPTS/Breakout.lua
+	cp -f src/breakout-widget.lua $(DEST)/breakout.lua
+
+clean:
+	rm -f package-lock.json
+	rm -rf $(DEST) node_modules src/*.lua
