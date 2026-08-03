@@ -1,0 +1,18 @@
+DEST?=_site
+
+all: lua
+
+deps: node_modules/.bin/tstl
+
+node_modules/.bin/tstl: package.json
+	npm i
+
+lua: deps
+	node_modules/.bin/tstl
+	mkdir -p $(DEST)/ARAR
+	cp -f src/link.lua $(DEST)/ARAR/Link.lua
+	cp -f src/link-widget.lua $(DEST)/main.lua
+
+clean:
+	rm -f package-lock.json
+	rm -rf $(DEST) node_modules src/*.lua
