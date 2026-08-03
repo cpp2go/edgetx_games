@@ -10,9 +10,11 @@ class Point {
 
 type Dir = { x: number; y: number };
 
+declare function getLastPos(): LuaMultiReturn<[unknown, unknown]>;
+
 class Game {
-    private cols = 16;
-    private rows = 12;
+    private cols = 30;
+    private rows = 20;
     private cell = 0;
     private xOffset = 0;
     private yOffset = 0;
@@ -43,9 +45,14 @@ class Game {
     }
 
     private computeGrid() {
-        const maxCellW = Math.floor(this.w / this.cols);
-        const maxCellH = Math.floor(this.h / this.rows);
-        this.cell = Math.max(4, Math.min(maxCellW, maxCellH));
+        // Use a 30x20 baseline so 480x320 maps to exact full-screen cells (16px each).
+        const baselineCols = 30;
+        const baselineRows = 20;
+        const baseCell = Math.max(8, Math.floor(Math.min(this.w / baselineCols, this.h / baselineRows)));
+
+        this.cell = baseCell;
+        this.cols = Math.max(12, Math.floor(this.w / this.cell));
+        this.rows = Math.max(10, Math.floor(this.h / this.cell));
         this.xOffset = Math.floor((this.w - this.cell * this.cols) / 2);
         this.yOffset = Math.floor((this.h - this.cell * this.rows) / 2);
     }
@@ -91,10 +98,108 @@ class Game {
         return a.x + b.x == 0 && a.y + b.y == 0;
     }
 
+    private isSameDir(a: Dir, b: Dir): boolean {
+        return a.x == b.x && a.y == b.y;
+    }
+
     private setDirection(d: Dir) {
-        if (!this.isOpposite(this.dir, d)) {
+        if (!this.isOpposite(this.dir, d) && !this.isSameDir(this.nextDir, d)) {
             this.nextDir = d;
             this.playSfx(700, 10, 0);
+        }
+    }
+
+    private isTouchEvent(event: number): boolean {
+        return (
+            event == EVT_TOUCH_FIRST ||
+            event == EVT_TOUCH_SLIDE ||
+            event == EVT_TOUCH_TAP ||
+            event == EVT_TOUCH_BREAK
+        );
+    }
+
+    private readTouchPosition(): Point | null {
+        if (type(getLastPos as unknown) != "function") {
+            return null;
+        }
+
+        const [xRaw, yRaw] = getLastPos();
+        if (type(xRaw) == "number" && type(yRaw) == "number") {
+            return new Point(xRaw as number, yRaw as number);
+        }
+
+        if (type(xRaw) == "table") {
+            const t = xRaw as { x?: unknown; y?: unknown; [k: number]: unknown };
+            const tx = (t.x as number) ?? (t[1] as number);
+            const ty = (t.y as number) ?? (t[2] as number);
+            if (type(tx) == "number" && type(ty) == "number") {
+                return new Point(tx, ty);
+            }
+        }
+
+        return null;
+    }
+
+    private applyTouchControl(event: number): void {
+        if (!this.isTouchEvent(event)) {
+            return;
+        }
+
+        if (event == EVT_TOUCH_TAP) {
+            if (this.state == this.phase.initial || this.state == this.phase.gameOver) {
+                this.reset();
+                return;
+            }
+            if (this.state == this.phase.paused) {
+                this.state = this.phase.playing;
+                this.playSfx(820, 40, 0);
+                return;
+            }
+        }
+
+        if (this.state != this.phase.playing || this.snake.length == 0) {
+            return;
+        }
+
+        const touch = this.readTouchPosition();
+        if (touch == null) {
+            return;
+        }
+
+        const head = this.snake[0];
+        const headX = this.xOffset + head.x * this.cell + this.cell / 2;
+        const headY = this.yOffset + head.y * this.cell + this.cell / 2;
+        const dx = touch.x - headX;
+        const dy = touch.y - headY;
+
+        if (math.abs(dx) < this.cell * 0.4 && math.abs(dy) < this.cell * 0.4) {
+            return;
+        }
+
+        if (math.abs(dx) >= math.abs(dy)) {
+            this.setDirection({ x: dx >= 0 ? 1 : -1, y: 0 });
+        } else {
+            this.setDirection({ x: 0, y: dy >= 0 ? 1 : -1 });
+        }
+    }
+
+    private applyStickControl() {
+        if (this.state != this.phase.playing) {
+            return;
+        }
+
+        const sx = getValue("ail") / 1024;
+        const sy = getValue("ele") / 1024;
+        const deadzone = 0.35;
+
+        if (math.abs(sx) < deadzone && math.abs(sy) < deadzone) {
+            return;
+        }
+
+        if (math.abs(sx) >= math.abs(sy)) {
+            this.setDirection({ x: sx >= 0 ? 1 : -1, y: 0 });
+        } else {
+            this.setDirection({ x: 0, y: sy >= 0 ? -1 : 1 });
         }
     }
 
@@ -168,7 +273,6 @@ class Game {
 
         const gridW = this.cell * this.cols;
         const gridH = this.cell * this.rows;
-        lcd.drawRectangle(this.xOffset - 1, this.yOffset - 1, gridW + 2, gridH + 2, COLOR_THEME_PRIMARY1);
 
         lcd.drawFilledRectangle(
             this.xOffset + this.food.x * this.cell + 1,
@@ -200,8 +304,11 @@ class Game {
 
     public run(event: number, touchState: any): number {
         if (event != null) {
+            this.applyTouchControl(event);
             this.onEvent(event);
         }
+
+        this.applyStickControl();
 
         if (this.state == this.phase.playing) {
             const now = getTime();

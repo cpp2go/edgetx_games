@@ -26,13 +26,14 @@ class Game {
     private roadBottom = 0;
     private centerX = 0;
     private roadCurve = 0;
+    private stickDir = 0;
 
     private lastTick = 0;
     private soundEnabled = true;
 
     constructor(private w: number, private h: number) {
-        this.horizon = Math.floor(this.h * 0.26);
-        this.roadBottom = this.h - 12;
+        this.horizon = Math.floor(this.h * 0.18);
+        this.roadBottom = this.h;
         this.centerX = Math.floor(this.w / 2);
         this.lastTick = getTime();
     }
@@ -124,9 +125,33 @@ class Game {
         }
     }
 
+    private applyStickControl() {
+        if (this.state != this.phase.playing) {
+            this.stickDir = 0;
+            return;
+        }
+
+        const sx = getValue('ail') / 1024;
+        const threshold = 0.45;
+        let dir = 0;
+
+        if (sx >= threshold) {
+            dir = 1;
+        } else if (sx <= -threshold) {
+            dir = -1;
+        }
+
+        // Edge-triggered input: one lane change per deliberate stick deflection.
+        if (dir != 0 && dir != this.stickDir) {
+            this.moveLane(dir);
+        }
+
+        this.stickDir = dir;
+    }
+
     private laneToX(lane: number, z: number): number {
         const perspective = 0.18 + z * 0.82;
-        const laneSpan = 14 + perspective * 56;
+        const laneSpan = 16 + perspective * (this.w * 0.22);
         return this.centerX + this.roadCurve * perspective + lane * laneSpan;
     }
 
@@ -192,7 +217,7 @@ class Game {
         // road body
         for (let y = this.horizon; y < this.roadBottom; y += 2) {
             const t = (y - this.horizon) / (this.roadBottom - this.horizon);
-            const halfW = 20 + t * (this.w * 0.42);
+            const halfW = 24 + t * (this.w * 0.46);
             const cx = this.centerX + this.roadCurve * t;
             lcd.drawFilledRectangle(cx - halfW, y, halfW * 2, 2, COLOR_THEME_SECONDARY3);
 
@@ -226,7 +251,7 @@ class Game {
 
     private drawPlayer() {
         const x = this.laneToX(this.playerLane, 1);
-        const y = this.roadBottom;
+        const y = this.roadBottom - 1;
         const w = 18;
         const h = 22;
 
@@ -256,6 +281,8 @@ class Game {
         if (event != null) {
             this.onEvent(event);
         }
+
+        this.applyStickControl();
 
         const now = getTime();
         if (now > this.lastTick) {

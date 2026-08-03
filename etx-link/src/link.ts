@@ -1,12 +1,13 @@
 interface Tile {
     id: number;
-    revealed: boolean;
     removed: boolean;
 }
 
+declare function getLastPos(): LuaMultiReturn<[unknown, unknown]>;
+
 class Game {
-    private cols = 6;
-    private rows = 4;
+    private cols = 12;
+    private rows = 8;
     private pairCount = (this.cols * this.rows) / 2;
 
     private board: Tile[] = [];
@@ -24,6 +25,7 @@ class Game {
     private cellH = 20;
     private ox = 0;
     private oy = 0;
+    private lastTouchIdx = -1;
 
     private soundEnabled = true;
     private dirs = [
@@ -45,12 +47,96 @@ class Game {
     }
 
     private layout() {
-        this.cellW = Math.max(18, Math.floor((this.w - 30) / this.cols));
-        this.cellH = Math.max(18, Math.floor((this.h - 60) / this.rows));
+        this.cellW = Math.max(14, Math.floor(this.w / this.cols));
+        this.cellH = Math.max(14, Math.floor(this.h / this.rows));
         const bw = this.cellW * this.cols;
         const bh = this.cellH * this.rows;
         this.ox = Math.floor((this.w - bw) / 2);
-        this.oy = Math.floor((this.h - bh) / 2) + 10;
+        this.oy = Math.floor((this.h - bh) / 2);
+    }
+
+    private isTouchEvent(event: number): boolean {
+        return (
+            event == EVT_TOUCH_FIRST ||
+            event == EVT_TOUCH_SLIDE ||
+            event == EVT_TOUCH_TAP ||
+            event == EVT_TOUCH_BREAK
+        );
+    }
+
+    private readTouchPosition(): { x: number; y: number } | null {
+        if (type(getLastPos as unknown) != 'function') {
+            return null;
+        }
+
+        const [xRaw, yRaw] = getLastPos();
+        if (type(xRaw) == 'number' && type(yRaw) == 'number') {
+            return { x: xRaw as number, y: yRaw as number };
+        }
+
+        if (type(xRaw) == 'table') {
+            const t = xRaw as { x?: unknown; y?: unknown; [k: number]: unknown };
+            const tx = (t.x as number) ?? (t[1] as number);
+            const ty = (t.y as number) ?? (t[2] as number);
+            if (type(tx) == 'number' && type(ty) == 'number') {
+                return { x: tx, y: ty };
+            }
+        }
+
+        return null;
+    }
+
+    private touchToIndex(x: number, y: number): number {
+        const gx = Math.floor((x - this.ox) / this.cellW);
+        const gy = Math.floor((y - this.oy) / this.cellH);
+        if (gx < 0 || gx >= this.cols || gy < 0 || gy >= this.rows) {
+            return -1;
+        }
+        return gy * this.cols + gx;
+    }
+
+    private applyTouchControl(event: number): boolean {
+        if (!this.isTouchEvent(event)) {
+            return false;
+        }
+
+        const pos = this.readTouchPosition();
+        const idx = pos ? this.touchToIndex(pos.x, pos.y) : -1;
+
+        if (event == EVT_TOUCH_BREAK) {
+            this.lastTouchIdx = -1;
+            return false;
+        }
+
+        if (this.phase == this.state.initial) {
+            if (event == EVT_TOUCH_TAP || event == EVT_TOUCH_FIRST) {
+                this.setupBoard();
+                this.playSfx(860, 25, 0);
+                return true;
+            }
+            return false;
+        }
+
+        if (idx >= 0) {
+            this.cursor = idx;
+        }
+
+        if (this.phase != this.state.playing || idx < 0) {
+            return false;
+        }
+
+        if (event == EVT_TOUCH_TAP || (event == EVT_TOUCH_FIRST && idx != this.lastTouchIdx)) {
+            this.trySelect();
+            this.lastTouchIdx = idx;
+            return true;
+        }
+
+        if (event == EVT_TOUCH_SLIDE) {
+            this.lastTouchIdx = idx;
+            return true;
+        }
+
+        return false;
     }
 
     private shuffle(values: number[]): number[] {
@@ -64,10 +150,7 @@ class Game {
     }
 
     private labelFor(id: number): string {
-        if (id < 10) {
-            return `${id}`;
-        }
-        return String.fromCharCode(55 + id);
+        return `${id}`;
     }
 
     private setupBoard() {
@@ -80,7 +163,7 @@ class Game {
 
         this.board = [];
         for (let i = 0; i < values.length; i++) {
-            this.board.push({ id: values[i], revealed: false, removed: false });
+            this.board.push({ id: values[i], removed: false });
         }
         this.cursor = 0;
         this.selected = -1;
@@ -104,12 +187,6 @@ class Game {
     private processMismatchTimeout(now: number) {
         if (this.mismatchHideAt == 0 || now < this.mismatchHideAt) {
             return;
-        }
-        if (this.mismatchA >= 0) {
-            this.board[this.mismatchA].revealed = false;
-        }
-        if (this.mismatchB >= 0) {
-            this.board[this.mismatchB].revealed = false;
         }
         this.mismatchA = -1;
         this.mismatchB = -1;
@@ -213,15 +290,17 @@ class Game {
             return;
         }
         const t = this.board[this.cursor];
-        if (t.removed || t.revealed) {
+        if (t.removed) {
             return;
         }
 
-        t.revealed = true;
-        this.playSfx(760, 18, 0);
-
         if (this.selected < 0) {
             this.selected = this.cursor;
+            this.playSfx(760, 18, 0);
+            return;
+        }
+
+        if (this.selected == this.cursor) {
             return;
         }
 
@@ -240,13 +319,17 @@ class Game {
         } else {
             this.mismatchA = this.selected;
             this.mismatchB = this.cursor;
-            this.selected = -1;
-            this.mismatchHideAt = getTime() + 20;
+            this.selected = this.cursor;
+            this.mismatchHideAt = getTime() + 12;
             this.playSfx(220, 60, 0);
         }
     }
 
     private onEvent(event: number) {
+        if (this.applyTouchControl(event)) {
+            return;
+        }
+
         if (event == EVT_SYS_BREAK) {
             this.setupBoard();
             return;
@@ -281,13 +364,14 @@ class Game {
             return;
         }
 
-        if (t.revealed) {
-            lcd.drawFilledRectangle(px + 1, py + 1, this.cellW - 2, this.cellH - 2, COLOR_THEME_SECONDARY1);
-            lcd.drawText(px + this.cellW / 2, py + this.cellH / 2, this.labelFor(t.id), CENTER | VCENTER | SMLSIZE | COLOR_THEME_PRIMARY1);
-        } else {
-            lcd.drawFilledRectangle(px + 1, py + 1, this.cellW - 2, this.cellH - 2, COLOR_THEME_PRIMARY1);
-            lcd.drawText(px + this.cellW / 2, py + this.cellH / 2, "?", CENTER | VCENTER | SMLSIZE | COLOR_THEME_PRIMARY2);
+        let fill = COLOR_THEME_SECONDARY1;
+        if (i == this.selected) {
+            fill = COLOR_THEME_WARNING;
+        } else if (i == this.mismatchA || i == this.mismatchB) {
+            fill = COLOR_THEME_PRIMARY3;
         }
+        lcd.drawFilledRectangle(px + 1, py + 1, this.cellW - 2, this.cellH - 2, fill);
+        lcd.drawText(px + this.cellW / 2, py + this.cellH / 2, this.labelFor(t.id), CENTER | VCENTER | SMLSIZE | COLOR_THEME_PRIMARY1);
 
         lcd.drawRectangle(px, py, this.cellW, this.cellH, COLOR_THEME_PRIMARY1);
 
@@ -305,8 +389,8 @@ class Game {
     private draw() {
         lcd.clear(COLOR_THEME_PRIMARY2);
 
-        lcd.drawText(4, 4, `Pairs: ${this.matchedPairs}/${this.pairCount}`, SMLSIZE | COLOR_THEME_PRIMARY1);
-        lcd.drawText(this.w - 4, 4, "SYS: Restart", SMLSIZE | COLOR_THEME_PRIMARY1 | RIGHT);
+        lcd.drawText(4, 3, `Pairs: ${this.matchedPairs}/${this.pairCount}`, SMLSIZE | COLOR_THEME_PRIMARY1);
+        lcd.drawText(this.w - 4, 3, 'Tap 2 same + path<=2 turns', SMLSIZE | COLOR_THEME_PRIMARY1 | RIGHT);
 
         for (let i = 0; i < this.board.length; i++) {
             this.drawTile(i);

@@ -268,7 +268,7 @@ class Grid {
             this.blockColor.push(col);
         }
         this.xOffset = w / 2 - blockSize * cols / 2;
-        this.yOffset = h / 2 - blockSize * rows / 2;
+        this.yOffset = 0;
     }
 
     public draw(shape: Shape) {
@@ -436,6 +436,7 @@ class Game {
     private currentShape!: Shape;
     private grid: Grid;
     private speed: number; // in milliseconds
+    private speedScale = 100; // percent, 100 = default
     private level: number = -1;
     private rowsCompleted: number = 0;
     static gameState = { initial: 0, playing: 1, paused: 2, gameOver: 3 };
@@ -444,6 +445,7 @@ class Game {
     private scoreLabel?: string;
     private rowsLabel?: string;
     private levelLabel?: string;
+    private speedLabel?: string;
     private message: Message;
     private timerToken: number = 0;
     private soundEnabled = true;
@@ -454,7 +456,7 @@ class Game {
         this.w = w;
         this.h = h;
         this.message = new Message(this);
-        this.grid = new Grid(16, 10, lcd.RGB(128, 128, 128), w, h);
+        this.grid = new Grid(20, 10, lcd.RGB(128, 128, 128), w, h);
         this.speed = 1000;
         this.message.setMessage("TETRIS\nPress SYS to start");
         this.timerToken = getTime();
@@ -483,6 +485,9 @@ class Game {
         if (this.rowsLabel != null) {
             lcd.drawText(10, 36, `Rows: ${this.rowsLabel}`, SMLSIZE | COLOR_THEME_PRIMARY1);
         }
+        if (this.speedLabel != null) {
+            lcd.drawText(10, 49, `Speed: ${this.speedLabel}`, SMLSIZE | COLOR_THEME_PRIMARY1);
+        }
         this.message.draw();
     }
 
@@ -494,6 +499,7 @@ class Game {
         this.rowsCompleted = 0;
         this.score = 0;
         this.level = -1;
+        this.speedScale = 100;
         this.speed = 1000;
         this.phase = Game.gameState.playing;
         this.playSfx(900, 90, 0);
@@ -504,6 +510,24 @@ class Game {
         this.scoreLabel = this.score.toString();
         this.rowsLabel = this.rowsCompleted.toString();
         this.levelLabel = this.level.toString();
+        this.speedLabel = `${this.speedScale}%`;
+    }
+
+    private clamp(value: number, minValue: number, maxValue: number): number {
+        return Math.max(minValue, Math.min(maxValue, value));
+    }
+
+    private updateDropSpeed() {
+        const levelSpeed = this.level < 10 ? 1000 - this.level * 100 : 100;
+        const scaled = Math.floor(levelSpeed * (100 / this.speedScale));
+        this.speed = this.clamp(scaled, 60, 1200);
+        this.updateLabels();
+    }
+
+    private adjustSpeed(step: number) {
+        this.speedScale = this.clamp(this.speedScale + step, 50, 220);
+        this.updateDropSpeed();
+        this.playSfx(step > 0 ? 980 : 560, 25, 0);
     }
 
     private gameTimer() {
@@ -563,6 +587,12 @@ class Game {
         if (event == EVT_SYS_BREAK) {
             this.newGame();
         }
+        else if (event == EVT_PLUS_FIRST || event == EVT_VIRTUAL_INC) {
+            this.adjustSpeed(10);
+        }
+        else if (event == EVT_MINUS_FIRST || event == EVT_VIRTUAL_DEC) {
+            this.adjustSpeed(-10);
+        }
         else if (event == EVT_MODEL_FIRST) { // Pause
             this.togglePause();
         }
@@ -588,13 +618,10 @@ class Game {
 
     private incrementLevel() {
         this.level++;
-        if (this.level < 10) {
-            this.speed = 1000 - (this.level * 100);
-        }
+        this.updateDropSpeed();
         if (this.level > 0) {
             this.playSfx(1000, 70, 0);
         }
-        this.updateLabels();
     }
 
     private shapeFinished() {
