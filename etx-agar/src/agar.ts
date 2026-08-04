@@ -239,7 +239,7 @@ class Game {
 
         for (let i = 0; i < this.playerCells.length; i++) {
             const p = this.playerCells[i];
-            const speed = 1.9 - Math.min(1.2, p.mass / 120);
+            const speed = (1.9 - Math.min(1.2, p.mass / 120)) * 1.5;
             p.vx = p.vx * 0.75 + stickX * speed * 0.25;
             p.vy = p.vy * 0.75 + (-stickY) * speed * 0.25;
 
@@ -485,6 +485,14 @@ class Game {
         (lcd.drawCircle as unknown as (cx: number, cy: number, radius: number, flags?: number) => void)(x, y, r, COLOR_THEME_PRIMARY2);
     }
 
+    // foods are tiny, filled rects are much cheaper than software circles
+    private drawFood(f: Blob) {
+        const x = this.ox + f.x;
+        const y = this.oy + f.y;
+        const r = Math.max(3, f.radius());
+        lcd.drawFilledRectangle(x - r, y - r, r * 2, r * 2, f.color);
+    }
+
     private drawHud() {
         const localX = this.ox + 6;
         const localY = this.oy + 4;
@@ -508,7 +516,7 @@ class Game {
         lcd.drawRectangle(this.ox, this.oy, this.arenaW, this.arenaH, COLOR_THEME_PRIMARY1);
 
         for (let i = 0; i < this.foods.length; i++) {
-            this.drawBlob(this.foods[i]);
+            this.drawFood(this.foods[i]);
         }
         for (let i = 0; i < this.blobs.length; i++) {
             this.drawBlob(this.blobs[i]);

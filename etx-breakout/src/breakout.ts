@@ -134,8 +134,8 @@ class Game {
         }
         this.ballStuck = false;
         const speed = 1.0 + (this.level - 1) * 0.15;
-        this.ballVx = 1.7 * speed;
-        this.ballVy = -2.7 * speed;
+        this.ballVx = 3.2 * speed;
+        this.ballVy = -4.8 * speed;
         this.playSfx(880, 60, 0);
     }
 
@@ -254,39 +254,46 @@ class Game {
             return;
         }
 
-        const prevX = this.ballX;
-        const prevY = this.ballY;
+        // substeps prevent the ball tunneling through bricks at high speed
+        const maxStep = Math.max(Math.abs(this.ballVx), Math.abs(this.ballVy));
+        const stepCount = Math.max(2, Math.min(8, Math.ceil(maxStep / 3)));
 
-        this.ballX += this.ballVx;
-        this.ballY += this.ballVy;
+        for (let s = 0; s < stepCount; s++) {
+            const prevX = this.ballX;
+            const prevY = this.ballY;
 
-        if (this.ballX - this.ballR <= 0) {
-            this.ballX = this.ballR;
-            this.ballVx = Math.abs(this.ballVx);
-            this.playSfx(420, 12, 0);
-        } else if (this.ballX + this.ballR >= this.w) {
-            this.ballX = this.w - this.ballR;
-            this.ballVx = -Math.abs(this.ballVx);
-            this.playSfx(420, 12, 0);
-        }
+            this.ballX += this.ballVx / stepCount;
+            this.ballY += this.ballVy / stepCount;
 
-        if (this.ballY - this.ballR <= 0) {
-            this.ballY = this.ballR;
-            this.ballVy = Math.abs(this.ballVy);
-            this.playSfx(420, 12, 0);
-        }
+            if (this.ballX - this.ballR <= 0) {
+                this.ballX = this.ballR;
+                this.ballVx = Math.abs(this.ballVx);
+                this.playSfx(420, 12, 0);
+            } else if (this.ballX + this.ballR >= this.w) {
+                this.ballX = this.w - this.ballR;
+                this.ballVx = -Math.abs(this.ballVx);
+                this.playSfx(420, 12, 0);
+            }
 
-        this.handlePaddleCollision(prevY);
-        this.handleBrickCollision(prevX, prevY);
+            if (this.ballY - this.ballR <= 0) {
+                this.ballY = this.ballR;
+                this.ballVy = Math.abs(this.ballVy);
+                this.playSfx(420, 12, 0);
+            }
 
-        if (this.ballY - this.ballR > this.h) {
-            this.lives -= 1;
-            this.playSfx(180, 180, 0);
-            if (this.lives <= 0) {
-                this.best = Math.max(this.best, this.score);
-                this.phase = this.state.gameOver;
-            } else {
-                this.resetBall(true);
+            this.handlePaddleCollision(prevY);
+            this.handleBrickCollision(prevX, prevY);
+
+            if (this.ballY - this.ballR > this.h) {
+                this.lives -= 1;
+                this.playSfx(180, 180, 0);
+                if (this.lives <= 0) {
+                    this.best = Math.max(this.best, this.score);
+                    this.phase = this.state.gameOver;
+                } else {
+                    this.resetBall(true);
+                }
+                break;
             }
         }
     }

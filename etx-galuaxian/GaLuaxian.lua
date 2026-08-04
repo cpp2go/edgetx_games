@@ -36,7 +36,7 @@ local menuPosition = 0
 local menuPadding = 2
 local menuOpened = false -- dirty hack to avoid EVT_ENTER_BREAK trigger settings change on initial menu open
 local nextShotSoundAt = 0
-local touchControlUntil = 0
+local touchActive = false
 local touchLast = { x = LCD_W / 2, y = LCD_H / 2 }
 
 local function playSfx(freq, duration, pause)
@@ -357,18 +357,27 @@ end
 
 local function applyTouchControl(event)
   if isTouchEvent(event) then
-    local tx, ty = readTouchPosition()
-    if tx and ty then
-      touchLast.x = clamp(tx, 0, LCD_W)
-      touchLast.y = clamp(ty, 0, LCD_H)
-      touchControlUntil = currentTime + 25
+    if event == EVT_TOUCH_BREAK then
+      touchActive = false
+    else
+      local tx, ty = readTouchPosition()
+      if tx and ty then
+        touchLast.x = clamp(tx, 0, LCD_W)
+        touchLast.y = clamp(ty, 0, LCD_H)
+        touchActive = true
+      end
     end
   end
 
-  if currentTime < touchControlUntil then
-    shipPosition.x = clamp(touchLast.x - shipHalfWidth, actionAreaWidthStart, actionAreaWidthEnd)
-    shipPosition.y = clamp(touchLast.y - shipHeight / 2, actionAreaHeightStart, actionAreaHeightEnd)
-    return true
+  if touchActive then
+    -- stick input reclaims control
+    if math.abs(getValue('ail')) > 300 or math.abs(getValue('ele')) > 300 then
+      touchActive = false
+    else
+      shipPosition.x = clamp(touchLast.x - shipHalfWidth, actionAreaWidthStart, actionAreaWidthEnd)
+      shipPosition.y = clamp(touchLast.y - shipHeight / 2, actionAreaHeightStart, actionAreaHeightEnd)
+      return true
+    end
   end
   return false
 end
