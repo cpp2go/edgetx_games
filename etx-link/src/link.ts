@@ -6,8 +6,8 @@ interface Tile {
 declare function getLastPos(): LuaMultiReturn<[unknown, unknown]>;
 
 class Game {
-    private cols = 12;
-    private rows = 8;
+    private cols = 10;
+    private rows = 6;
     private pairCount = (this.cols * this.rows) / 2;
 
     private board: Tile[] = [];
@@ -182,7 +182,7 @@ class Game {
         const cy = py + this.cellH / 2;
         const shape = id % 8;
         const color = this.tileColors[Math.floor(id / 8) % 3];
-        const r = Math.max(3, Math.floor(Math.min(this.cellW, this.cellH) * 0.32));
+        const r = Math.max(3, Math.floor(Math.min(this.cellW, this.cellH) * 0.4));
         const tri = lcd.drawFilledTriangle as unknown as (
             x1: number,
             y1: number,
@@ -287,20 +287,27 @@ class Game {
             ids.push(i + 1);
             ids.push(i + 1);
         }
-        this.shuffle(ids);
 
-        let next = 0;
-        for (let i = 0; i < alive.length; i++) {
-            if (slots[i] == aIdx || slots[i] == bIdx) {
-                alive[i].id = 1;
-            } else {
-                alive[i].id = ids[next];
-                next += 1;
+        // assign ids, retrying until a connectable match exists
+        let tries = 0;
+        let solvable = false;
+        while (!solvable && tries < 30) {
+            this.shuffle(ids);
+            let next = 0;
+            for (let i = 0; i < alive.length; i++) {
+                if (slots[i] == aIdx || slots[i] == bIdx) {
+                    alive[i].id = 1;
+                } else {
+                    alive[i].id = ids[next];
+                    next += 1;
+                }
             }
+            solvable = this.hasAvailableMatch();
+            tries += 1;
         }
         this.selected = -1;
         this.playSfx(740, 40, 0);
-        this.rebalanceMsgUntil = getTime() + 40;
+        this.rebalanceMsgUntil = getTime() + 150;
     }
 
     private setupBoard() {
@@ -523,7 +530,6 @@ class Game {
 
         lcd.drawFilledRectangle(px + 1, py + 1, this.cellW - 2, this.cellH - 2, COLOR_THEME_SECONDARY3);
         this.drawTileShape(px, py, t.id);
-        lcd.drawRectangle(px, py, this.cellW, this.cellH, COLOR_THEME_PRIMARY1);
 
         if (i == this.selected || i == this.mismatchA || i == this.mismatchB) {
             const hc = i == this.selected ? COLOR_THEME_WARNING : COLOR_THEME_PRIMARY3;
@@ -570,7 +576,7 @@ class Game {
         if (this.phase == this.state.playing) {
             // self-heal: if the board ever has no move, reshuffle it
             this.frameCount += 1;
-            if (this.frameCount % 12 == 0 && !this.hasAvailableMatch()) {
+            if (this.frameCount % 6 == 0 && !this.hasAvailableMatch()) {
                 this.rebalance();
             }
         }

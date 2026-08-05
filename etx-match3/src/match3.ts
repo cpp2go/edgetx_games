@@ -1,8 +1,8 @@
 declare function getLastPos(): LuaMultiReturn<[unknown, unknown]>;
 
 class Game {
-    private cols = 12;
-    private rows = 8;
+    private cols = 10;
+    private rows = 6;
     private board: number[][] = [];
     private special: number[][] = [];
 
@@ -33,6 +33,7 @@ class Game {
     private cursor = 0;
     private resolving = false;
     private settling = false;
+    private settleTimer = 0;
     private pressed = false;
 
     private soundEnabled = true;
@@ -86,6 +87,7 @@ class Game {
         this.cursor = 0;
         this.resolving = false;
         this.settling = false;
+        this.settleTimer = 0;
         this.phase = this.state.playing;
         this.playSfx(880, 80, 0);
     }
@@ -476,17 +478,31 @@ class Game {
         }
     }
 
+    // same shape set and sizing as Link
     private drawShape(cx: number, cy: number, sr: number, shape: number, color: number) {
+        const tri = lcd.drawFilledTriangle as unknown as (
+            x1: number,
+            y1: number,
+            x2: number,
+            y2: number,
+            x3: number,
+            y3: number,
+            flags?: number
+        ) => void;
         if (shape == 0) {
-            lcd.drawFilledRectangle(cx - sr, cy - sr, sr * 2, sr * 2, color);
-        } else if (shape == 1) {
-            lcd.drawRectangle(cx - sr, cy - sr, sr * 2, sr * 2, color);
-        } else if (shape == 2) {
             (lcd.drawFilledCircle as unknown as (x: number, y: number, r: number, flags?: number) => void)(cx, cy, sr, color);
+        } else if (shape == 1) {
+            lcd.drawFilledRectangle(cx - sr, cy - sr, sr * 2, sr * 2, color);
+        } else if (shape == 2) {
+            tri(cx, cy - sr, cx + sr, cy + sr, cx - sr, cy + sr, color);
         } else if (shape == 3) {
-            (lcd.drawCircle as unknown as (x: number, y: number, r: number, flags?: number) => void)(cx, cy, sr, color);
-        } else {
-            (lcd.drawFilledTriangle as unknown as (
+            // diamond
+            tri(cx, cy - sr, cx + sr, cy, cx, cy + sr, color);
+            tri(cx, cy - sr, cx, cy + sr, cx - sr, cy, color);
+        } else if (shape == 4) {
+            lcd.drawRectangle(cx - sr, cy - sr, sr * 2, sr * 2, color);
+        } else if (shape == 5) {
+            (lcd.drawTriangle as unknown as (
                 x1: number,
                 y1: number,
                 x2: number,
@@ -494,7 +510,14 @@ class Game {
                 x3: number,
                 y3: number,
                 flags?: number
-            ) => void)(cx, cy - sr, cx + sr * 0.866, cy + sr * 0.5, cx - sr * 0.866, cy + sr * 0.5, color);
+            ) => void)(cx, cy - sr, cx + sr, cy + sr, cx - sr, cy + sr, color);
+        } else if (shape == 6) {
+            (lcd.drawCircle as unknown as (x: number, y: number, r: number, flags?: number) => void)(cx, cy, sr, color);
+        } else {
+            // cross
+            const t = Math.max(2, Math.floor(sr / 2));
+            lcd.drawFilledRectangle(cx - t, cy - sr, t * 2, sr * 2, color);
+            lcd.drawFilledRectangle(cx - sr, cy - t, sr * 2, t * 2, color);
         }
     }
 
@@ -512,7 +535,7 @@ class Game {
         lcd.drawFilledRectangle(px + 1, py + 1, this.cellW - 2, this.cellH - 2, COLOR_THEME_SECONDARY3);
         const cx = px + this.cellW / 2;
         const cy = py + this.cellH / 2;
-        const sr = Math.max(3, Math.floor(Math.min(this.cellW, this.cellH) * 0.3));
+        const sr = Math.max(3, Math.floor(Math.min(this.cellW, this.cellH) * 0.4));
         this.drawShape(cx, cy, sr, color, this.colors[color]);
 
         const sp = this.special[r][c];
@@ -574,9 +597,13 @@ class Game {
 
         if (this.phase == this.state.playing) {
             if (this.settling) {
-                if (!this.gravityStep()) {
-                    this.refill();
-                    this.settling = false;
+                this.settleTimer += 1;
+                if (this.settleTimer >= 3) {
+                    this.settleTimer = 0;
+                    if (!this.gravityStep()) {
+                        this.refill();
+                        this.settling = false;
+                    }
                 }
             } else if (this.resolving) {
                 const count = this.clearMatches();

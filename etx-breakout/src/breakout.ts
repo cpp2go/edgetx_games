@@ -48,7 +48,7 @@ class Game {
         this.paddleW = Math.floor(baseW * reduction);
         this.paddleH = Math.max(8, Math.floor(this.h * 0.025));
         this.paddleY = this.h - Math.max(16, Math.floor(this.h * 0.06));
-        this.ballR = Math.max(5, Math.floor(this.w * 0.011));
+        this.ballR = Math.max(6, Math.floor(this.w * 0.015));
         this.paddleX = Math.floor(this.w / 2);
     }
 
@@ -134,8 +134,8 @@ class Game {
         }
         this.ballStuck = false;
         const speed = 1.0 + (this.level - 1) * 0.15;
-        this.ballVx = 4.0 * speed;
-        this.ballVy = -6.0 * speed;
+        this.ballVx = 6.0 * speed;
+        this.ballVy = -9.0 * speed;
         this.playSfx(880, 60, 0);
     }
 
@@ -163,7 +163,7 @@ class Game {
 
     private updatePaddle() {
         const stick = getValue('ail') / 1024;
-        const maxStep = Math.max(4, Math.floor(this.w * 0.02));
+        const maxStep = Math.max(4, Math.floor(this.w * 0.03));
         this.paddleX += stick * maxStep;
         this.paddleX = this.clamp(this.paddleX, this.paddleW / 2, this.w - this.paddleW / 2);
 
@@ -370,7 +370,7 @@ class Game {
     }
 
     private drawBall() {
-        (lcd.drawFilledCircle as unknown as (cx: number, cy: number, radius: number, flags?: number) => void)(
+        (lcd.drawCircle as unknown as (cx: number, cy: number, radius: number, flags?: number) => void)(
             this.ballX,
             this.ballY,
             this.ballR,
