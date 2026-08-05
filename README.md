@@ -11,6 +11,7 @@ A collection of arcade games for EdgeTX / OpenTX transmitters with a color displ
 | `etx-breakout` | **Breakout** | Brick-breaking game with multiple levels and increasing difficulty |
 | `etx-galuaxian` | **GaLuaxian** | Galaga-style space shooter (standalone script, no widget) |
 | `etx-link` | **Link** | Tile-matching puzzle game (LianLianKan / Mahjong Connect style) |
+| `etx-match3` | **Match3** | Match-3 puzzle (消消乐): swap tiles to line up 3+ same colors, with bomb specials |
 | `etx-racer` | **Racer** | Arcade lane racer |
 | `etx-snake` | **Snake** | Classic Snake |
 | `etx-tetris` | **Tetris** | Classic Tetris |

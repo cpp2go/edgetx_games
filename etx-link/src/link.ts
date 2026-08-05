@@ -18,6 +18,8 @@ class Game {
     private mismatchHideAt = 0;
 
     private matchedPairs = 0;
+    private frameCount = 0;
+    private rebalanceMsgUntil = 0;
     private state = { initial: 0, playing: 1, win: 2 };
     private phase = this.state.initial;
 
@@ -26,8 +28,17 @@ class Game {
     private ox = 0;
     private oy = 0;
     private lastTouchIdx = -1;
+    private pressed = false;
 
     private soundEnabled = true;
+    private tileColors = [
+        COLOR_THEME_WARNING,
+        COLOR_THEME_ACTIVE,
+        COLOR_THEME_SECONDARY1,
+        COLOR_THEME_SECONDARY2,
+        COLOR_THEME_PRIMARY3,
+        COLOR_THEME_EDIT,
+    ];
     private dirs = [
         { x: 1, y: 0 },
         { x: -1, y: 0 },
@@ -64,7 +75,16 @@ class Game {
         );
     }
 
-    private readTouchPosition(): { x: number; y: number } | null {
+    private readTouchPosition(touchState: any): { x: number; y: number } | null {
+        // standalone scripts expose touch coords via touchState.x/.y
+        if (touchState != null) {
+            const tx = touchState.x;
+            const ty = touchState.y;
+            if (type(tx) == 'number' && type(ty) == 'number') {
+                return { x: tx as number, y: ty as number };
+            }
+        }
+
         if (type(getLastPos as unknown) != 'function') {
             return null;
         }
@@ -95,48 +115,55 @@ class Game {
         return gy * this.cols + gx;
     }
 
-    private applyTouchControl(event: number): boolean {
+    private applyTouchControl(event: number, touchState: any): boolean {
         if (!this.isTouchEvent(event)) {
             return false;
         }
 
-        const pos = this.readTouchPosition();
+        const pos = this.readTouchPosition(touchState);
         const idx = pos ? this.touchToIndex(pos.x, pos.y) : -1;
 
-        if (event == EVT_TOUCH_BREAK) {
-            this.lastTouchIdx = -1;
-            return false;
-        }
-
-        if (this.phase == this.state.initial) {
+        if (this.phase == this.state.initial || this.phase == this.state.win) {
             if (event == EVT_TOUCH_TAP || event == EVT_TOUCH_FIRST) {
                 this.setupBoard();
                 this.playSfx(860, 25, 0);
+                this.pressed = true; // consume the rest of this tap
                 return true;
             }
             return false;
         }
 
-        if (idx >= 0) {
-            this.cursor = idx;
-        }
-
-        if (this.phase != this.state.playing || idx < 0) {
+        if (this.phase != this.state.playing) {
             return false;
         }
 
-        if (event == EVT_TOUCH_TAP || (event == EVT_TOUCH_FIRST && idx != this.lastTouchIdx)) {
-            this.trySelect();
-            this.lastTouchIdx = idx;
+        if (event == EVT_TOUCH_BREAK) {
+            this.lastTouchIdx = -1;
+            this.pressed = false;
             return true;
         }
 
-        if (event == EVT_TOUCH_SLIDE) {
-            this.lastTouchIdx = idx;
+        if (event == EVT_TOUCH_TAP) {
+            if (idx >= 0) {
+                this.cursor = idx;
+                this.trySelect();
+            }
+            this.pressed = true;
             return true;
         }
 
-        return false;
+        // select the tile the finger first lands on, no matter which
+        // event type (FIRST/SLIDE) carries the position
+        if (idx >= 0) {
+            this.cursor = idx;
+            if (!this.pressed) {
+                this.pressed = true;
+                this.trySelect();
+            }
+            this.lastTouchIdx = idx;
+        }
+
+        return true;
     }
 
     private shuffle(values: number[]): number[] {
@@ -149,8 +176,131 @@ class Game {
         return values;
     }
 
-    private labelFor(id: number): string {
-        return `${id}`;
+    // 8 shapes x 3 colors = 24 patterns, each tile id appears exactly twice
+    private drawTileShape(px: number, py: number, id: number) {
+        const cx = px + this.cellW / 2;
+        const cy = py + this.cellH / 2;
+        const shape = id % 8;
+        const color = this.tileColors[Math.floor(id / 8) % 3];
+        const r = Math.max(3, Math.floor(Math.min(this.cellW, this.cellH) * 0.32));
+        const tri = lcd.drawFilledTriangle as unknown as (
+            x1: number,
+            y1: number,
+            x2: number,
+            y2: number,
+            x3: number,
+            y3: number,
+            flags?: number
+        ) => void;
+
+        if (shape == 0) {
+            (lcd.drawFilledCircle as unknown as (x: number, y: number, r: number, flags?: number) => void)(cx, cy, r, color);
+        } else if (shape == 1) {
+            lcd.drawFilledRectangle(cx - r, cy - r, r * 2, r * 2, color);
+        } else if (shape == 2) {
+            tri(cx, cy - r, cx + r, cy + r, cx - r, cy + r, color);
+        } else if (shape == 3) {
+            // diamond
+            tri(cx, cy - r, cx + r, cy, cx, cy + r, color);
+            tri(cx, cy - r, cx, cy + r, cx - r, cy, color);
+        } else if (shape == 4) {
+            lcd.drawRectangle(cx - r, cy - r, r * 2, r * 2, color);
+        } else if (shape == 5) {
+            (lcd.drawTriangle as unknown as (
+                x1: number,
+                y1: number,
+                x2: number,
+                y2: number,
+                x3: number,
+                y3: number,
+                flags?: number
+            ) => void)(cx, cy - r, cx + r, cy + r, cx - r, cy + r, color);
+        } else if (shape == 6) {
+            (lcd.drawCircle as unknown as (x: number, y: number, r: number, flags?: number) => void)(cx, cy, r, color);
+        } else {
+            // cross
+            const t = Math.max(2, Math.floor(r / 2));
+            lcd.drawFilledRectangle(cx - t, cy - r, t * 2, r * 2, color);
+            lcd.drawFilledRectangle(cx - r, cy - t, r * 2, t * 2, color);
+        }
+    }
+
+    // two tiles match when they look identical (same shape and color)
+    private samePattern(a: Tile, b: Tile): boolean {
+        return a.id % 8 == b.id % 8 && Math.floor(a.id / 8) % 3 == Math.floor(b.id / 8) % 3;
+    }
+
+    private hasAvailableMatch(): boolean {
+        for (let i = 0; i < this.board.length; i++) {
+            const a = this.board[i];
+            if (a.removed) {
+                continue;
+            }
+            for (let j = i + 1; j < this.board.length; j++) {
+                const b = this.board[j];
+                if (b.removed) {
+                    continue;
+                }
+                if (this.samePattern(a, b) && this.canConnect(i, j)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    // reshuffle the remaining tiles into pairs; force one truly-adjacent
+    // matching pair so the board can never stall
+    private rebalance() {
+        const slots: number[] = [];
+        const alive: Tile[] = [];
+        for (let i = 0; i < this.board.length; i++) {
+            if (!this.board[i].removed) {
+                slots.push(i);
+                alive.push(this.board[i]);
+            }
+        }
+        if (alive.length < 2) {
+            return;
+        }
+
+        // pick a genuinely adjacent pair of alive cells to anchor a match
+        let aIdx = slots[0];
+        let bIdx = slots[1];
+        for (let i = 0; i < slots.length; i++) {
+            const s = slots[i];
+            const c = s % this.cols;
+            if (c < this.cols - 1 && !this.board[s + 1].removed) {
+                aIdx = s;
+                bIdx = s + 1;
+                break;
+            }
+            if (s + this.cols < this.board.length && !this.board[s + this.cols].removed) {
+                aIdx = s;
+                bIdx = s + this.cols;
+                break;
+            }
+        }
+
+        const ids: number[] = [];
+        for (let i = 1; i < Math.floor(alive.length / 2); i++) {
+            ids.push(i + 1);
+            ids.push(i + 1);
+        }
+        this.shuffle(ids);
+
+        let next = 0;
+        for (let i = 0; i < alive.length; i++) {
+            if (slots[i] == aIdx || slots[i] == bIdx) {
+                alive[i].id = 1;
+            } else {
+                alive[i].id = ids[next];
+                next += 1;
+            }
+        }
+        this.selected = -1;
+        this.playSfx(740, 40, 0);
+        this.rebalanceMsgUntil = getTime() + 40;
     }
 
     private setupBoard() {
@@ -173,6 +323,9 @@ class Game {
         this.matchedPairs = 0;
         this.phase = this.state.playing;
         this.playSfx(880, 80, 0);
+        if (!this.hasAvailableMatch()) {
+            this.rebalance();
+        }
     }
 
     private moveCursor(dx: number, dy: number) {
@@ -306,7 +459,7 @@ class Game {
 
         const a = this.board[this.selected];
         const b = t;
-        if (a.id == b.id && this.canConnect(this.selected, this.cursor)) {
+        if (this.samePattern(a, b) && this.canConnect(this.selected, this.cursor)) {
             a.removed = true;
             b.removed = true;
             this.selected = -1;
@@ -315,6 +468,8 @@ class Game {
             if (this.matchedPairs >= this.pairCount) {
                 this.phase = this.state.win;
                 this.playSfx(980, 120, 0);
+            } else if (!this.hasAvailableMatch()) {
+                this.rebalance();
             }
         } else {
             this.mismatchA = this.selected;
@@ -325,8 +480,8 @@ class Game {
         }
     }
 
-    private onEvent(event: number) {
-        if (this.applyTouchControl(event)) {
+    private onEvent(event: number, touchState: any) {
+        if (this.applyTouchControl(event, touchState)) {
             return;
         }
 
@@ -349,6 +504,8 @@ class Game {
             this.moveCursor(0, 1);
         } else if (event == EVT_ENTER_BREAK || event == EVT_VIRTUAL_ENTER) {
             this.trySelect();
+        } else if (event == EVT_PLUS_FIRST || event == EVT_MINUS_FIRST) {
+            this.rebalance();
         }
     }
 
@@ -364,18 +521,14 @@ class Game {
             return;
         }
 
-        let fill = COLOR_THEME_SECONDARY1;
-        if (i == this.selected) {
-            fill = COLOR_THEME_WARNING;
-        } else if (i == this.mismatchA || i == this.mismatchB) {
-            fill = COLOR_THEME_PRIMARY3;
-        }
-        lcd.drawFilledRectangle(px + 1, py + 1, this.cellW - 2, this.cellH - 2, fill);
-        lcd.drawText(px + this.cellW / 2, py + this.cellH / 2, this.labelFor(t.id), CENTER | VCENTER | SMLSIZE | COLOR_THEME_PRIMARY1);
-
+        lcd.drawFilledRectangle(px + 1, py + 1, this.cellW - 2, this.cellH - 2, COLOR_THEME_SECONDARY3);
+        this.drawTileShape(px, py, t.id);
         lcd.drawRectangle(px, py, this.cellW, this.cellH, COLOR_THEME_PRIMARY1);
 
-        if (i == this.cursor) {
+        if (i == this.selected || i == this.mismatchA || i == this.mismatchB) {
+            const hc = i == this.selected ? COLOR_THEME_WARNING : COLOR_THEME_PRIMARY3;
+            lcd.drawRectangle(px - 1, py - 1, this.cellW + 2, this.cellH + 2, hc, 2);
+        } else if (i == this.cursor) {
             lcd.drawRectangle(px - 1, py - 1, this.cellW + 2, this.cellH + 2, COLOR_THEME_WARNING);
         }
     }
@@ -390,25 +543,37 @@ class Game {
         lcd.clear(COLOR_THEME_PRIMARY2);
 
         lcd.drawText(4, 3, `Pairs: ${this.matchedPairs}/${this.pairCount}`, SMLSIZE | COLOR_THEME_PRIMARY1);
-        lcd.drawText(this.w - 4, 3, 'Tap 2 same + path<=2 turns', SMLSIZE | COLOR_THEME_PRIMARY1 | RIGHT);
+        lcd.drawText(this.w - 4, 3, '+/-: shuffle', SMLSIZE | COLOR_THEME_PRIMARY1 | RIGHT);
 
         for (let i = 0; i < this.board.length; i++) {
             this.drawTile(i);
         }
 
+        if (this.rebalanceMsgUntil != 0 && getTime() < this.rebalanceMsgUntil) {
+            lcd.drawText(this.w / 2, this.h - 28, 'No match - shuffled', SMLSIZE | CENTER | COLOR_THEME_WARNING);
+        }
+
         if (this.phase == this.state.initial) {
-            this.drawOverlay("LINK\nPress SYS");
+            this.drawOverlay('LINK\nTap or SYS');
         } else if (this.phase == this.state.win) {
-            this.drawOverlay("YOU WIN\nPress SYS");
+            this.drawOverlay('YOU WIN\nTap or SYS');
         }
     }
 
     public run(event: number, touchState: any): number {
         if (event != null) {
-            this.onEvent(event);
+            this.onEvent(event, touchState);
         }
 
-        this.processMismatchTimeout(getTime());
+        const now = getTime();
+        this.processMismatchTimeout(now);
+        if (this.phase == this.state.playing) {
+            // self-heal: if the board ever has no move, reshuffle it
+            this.frameCount += 1;
+            if (this.frameCount % 12 == 0 && !this.hasAvailableMatch()) {
+                this.rebalance();
+            }
+        }
         this.draw();
         return 0;
     }

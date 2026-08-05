@@ -5,14 +5,16 @@ class Blob {
     public vx: number;
     public vy: number;
     public color: number;
+    public shape: number;
 
-    constructor(x: number, y: number, mass: number, vx: number, vy: number, color: number) {
+    constructor(x: number, y: number, mass: number, vx: number, vy: number, color: number, shape: number = 0) {
         this.x = x;
         this.y = y;
         this.mass = mass;
         this.vx = vx;
         this.vy = vy;
         this.color = color;
+        this.shape = shape;
     }
 
     public radius(): number {
@@ -44,7 +46,13 @@ class Game {
     private ejectCooldownUntil = 0;
     private mergeAllowedAt = 0;
     private maxPlayerCells = 8;
-
+    private foodColors = [
+        COLOR_THEME_WARNING,
+        COLOR_THEME_SECONDARY1,
+        COLOR_THEME_SECONDARY2,
+        COLOR_THEME_ACTIVE,
+        COLOR_THEME_PRIMARY3,
+    ];
     constructor(private w: number, private h: number) {
         this.setupViewport();
         this.lastTick = getTime();
@@ -72,7 +80,9 @@ class Game {
         const x = this.rand(10, this.arenaW - 10);
         const y = this.rand(10, this.arenaH - 10);
         const m = this.rand(2, 5);
-        this.foods.push(new Blob(x, y, m, 0, 0, COLOR_THEME_WARNING));
+        const shape = Math.floor(this.rand(0, 4));
+        const color = this.foodColors[Math.floor(this.rand(0, this.foodColors.length))];
+        this.foods.push(new Blob(x, y, m, 0, 0, color, shape));
     }
 
     private spawnEnemy(baseMass: number) {
@@ -239,7 +249,7 @@ class Game {
 
         for (let i = 0; i < this.playerCells.length; i++) {
             const p = this.playerCells[i];
-            const speed = (1.9 - Math.min(1.2, p.mass / 120)) * 1.5;
+            const speed = (2.2 - Math.min(1.8, p.mass / 70)) * 1.4;
             p.vx = p.vx * 0.75 + stickX * speed * 0.25;
             p.vy = p.vy * 0.75 + (-stickY) * speed * 0.25;
 
@@ -485,12 +495,61 @@ class Game {
         (lcd.drawCircle as unknown as (cx: number, cy: number, radius: number, flags?: number) => void)(x, y, r, COLOR_THEME_PRIMARY2);
     }
 
-    // foods are tiny, filled rects are much cheaper than software circles
+    // foods: square = cheap rect, others = clean rect+triangle shapes
     private drawFood(f: Blob) {
         const x = this.ox + f.x;
         const y = this.oy + f.y;
         const r = Math.max(3, f.radius());
-        lcd.drawFilledRectangle(x - r, y - r, r * 2, r * 2, f.color);
+        if (f.shape == 0) {
+            lcd.drawFilledRectangle(x - r, y - r, r * 2, r * 2, f.color);
+        } else if (f.shape == 1) {
+            (lcd.drawFilledTriangle as unknown as (
+                x1: number, y1: number, x2: number, y2: number, x3: number, y3: number, flags?: number
+            ) => void)(x, y - r, x + r * 0.866, y + r * 0.5, x - r * 0.866, y + r * 0.5, f.color);
+        } else if (f.shape == 2) {
+            this.drawPentagon(x, y, r, f.color);
+        } else {
+            this.drawHexagon(x, y, r, f.color);
+        }
+    }
+
+    // pentagon = center band + top + 2 side triangles, avoids center-fan seams
+    private drawPentagon(cx: number, cy: number, r: number, color: number) {
+        const w = r * 0.951;
+        const w2 = r * 0.588;
+        const h1 = r * 0.309;
+        const h2 = r * 0.809;
+        const tri = lcd.drawFilledTriangle as unknown as (
+            x1: number,
+            y1: number,
+            x2: number,
+            y2: number,
+            x3: number,
+            y3: number,
+            flags?: number
+        ) => void;
+        lcd.drawFilledRectangle(cx - w2, cy - h1, w2 * 2, h1 + h2, color);
+        tri(cx, cy - r, cx + w, cy - h1, cx - w, cy - h1, color);
+        tri(cx + w, cy - h1, cx + w2, cy + h2, cx + w2, cy - h1, color);
+        tri(cx - w, cy - h1, cx - w2, cy - h1, cx - w2, cy + h2, color);
+    }
+
+    // hexagon = center band + 2 triangles, avoids center-fan seams
+    private drawHexagon(cx: number, cy: number, r: number, color: number) {
+        const hw = r * 0.866;
+        const hy = r * 0.5;
+        const tri = lcd.drawFilledTriangle as unknown as (
+            x1: number,
+            y1: number,
+            x2: number,
+            y2: number,
+            x3: number,
+            y3: number,
+            flags?: number
+        ) => void;
+        lcd.drawFilledRectangle(cx - hw, cy - hy, hw * 2, r, color);
+        tri(cx, cy - r, cx + hw, cy - hy, cx - hw, cy - hy, color);
+        tri(cx, cy + r, cx + hw, cy + hy, cx - hw, cy + hy, color);
     }
 
     private drawHud() {

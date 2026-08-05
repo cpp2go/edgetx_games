@@ -134,8 +134,8 @@ class Game {
         }
         this.ballStuck = false;
         const speed = 1.0 + (this.level - 1) * 0.15;
-        this.ballVx = 3.2 * speed;
-        this.ballVy = -4.8 * speed;
+        this.ballVx = 4.0 * speed;
+        this.ballVy = -6.0 * speed;
         this.playSfx(880, 60, 0);
     }
 
@@ -305,7 +305,9 @@ class Game {
         }
 
         if (event == EVT_MODEL_FIRST) {
-            if (this.phase == this.state.playing) {
+            if (this.phase == this.state.playing && this.ballStuck) {
+                this.launchBall();
+            } else if (this.phase == this.state.playing) {
                 this.phase = this.state.paused;
                 this.playSfx(420, 60, 0);
             } else if (this.phase == this.state.paused) {
@@ -368,8 +370,12 @@ class Game {
     }
 
     private drawBall() {
-        const size = this.ballR * 2;
-        lcd.drawFilledRectangle(this.ballX - this.ballR, this.ballY - this.ballR, size, size, COLOR_THEME_WARNING);
+        (lcd.drawFilledCircle as unknown as (cx: number, cy: number, radius: number, flags?: number) => void)(
+            this.ballX,
+            this.ballY,
+            this.ballR,
+            COLOR_THEME_WARNING
+        );
     }
 
     private drawHud() {

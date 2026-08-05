@@ -331,7 +331,16 @@ local function isTouchEvent(event)
           or event == EVT_TOUCH_BREAK
 end
 
-local function readTouchPosition()
+local function readTouchPosition(touchState)
+  -- standalone scripts expose touch coords via touchState.x/.y
+  if touchState ~= nil then
+    local tx = touchState.x
+    local ty = touchState.y
+    if type(tx) == "number" and type(ty) == "number" then
+      return tx, ty
+    end
+  end
+
   if type(getLastPos) ~= "function" then
     return nil, nil
   end
@@ -355,12 +364,12 @@ local function readTouchPosition()
   return nil, nil
 end
 
-local function applyTouchControl(event)
+local function applyTouchControl(event, touchState)
   if isTouchEvent(event) then
     if event == EVT_TOUCH_BREAK then
       touchActive = false
     else
-      local tx, ty = readTouchPosition()
+      local tx, ty = readTouchPosition(touchState)
       if tx and ty then
         touchLast.x = clamp(tx, 0, LCD_W)
         touchLast.y = clamp(ty, 0, LCD_H)
@@ -526,11 +535,11 @@ local function renderMenu(event)
   lcd.drawRectangle(0, 11 + 11 * menuPosition, LCD_W, 12, SOLID) -- selected field frame
 end
 
-local function run_func(event)
+local function run_func(event, touchState)
   currentTime = getTime()
   timerValue = (currentTime - initTime) / 100 + 1
 
-  if not applyTouchControl(event) then
+  if not applyTouchControl(event, touchState) then
     shipPosition.x = mapInputToActionAreaPosition(getValue('ail'), actionAreaWidthStart, actionAreaWidthEnd) -- roll (left-right)
     shipPosition.y = mapInputToActionAreaPosition(getValue('ele') * -1, actionAreaHeightStart, actionAreaHeightEnd) -- pitch (up/down)
   end
