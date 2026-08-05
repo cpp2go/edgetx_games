@@ -18,7 +18,7 @@ class Blob {
     }
 
     public radius(): number {
-        return Math.max(3, Math.floor(Math.sqrt(this.mass) * 1.8));
+        return Math.max(3, Math.floor(Math.sqrt(this.mass) * 2.2));
     }
 }
 
@@ -34,12 +34,16 @@ class Game {
 
     private arenaW = 180;
     private arenaH = 140;
+    private viewW = 0;
+    private viewH = 0;
+    private camX = 0;
+    private camY = 0;
     private ox = 0;
     private oy = 0;
     private hudTop = 0;
     private border = 0;
 
-    private tickCs = 3;
+    private tickCs = 1;
     private lastTick = 0;
     private soundEnabled = true;
     private splitCooldownUntil = 0;
@@ -59,10 +63,26 @@ class Game {
     }
 
     private setupViewport() {
-        this.arenaW = Math.max(120, this.w - this.border * 2);
-        this.arenaH = Math.max(100, this.h - this.hudTop - this.border * 2);
-        this.ox = Math.floor((this.w - this.arenaW) / 2);
-        this.oy = this.hudTop;
+        this.viewW = this.w;
+        this.viewH = this.h;
+        this.arenaW = Math.max(this.viewW, Math.floor(this.viewW * 3));
+        this.arenaH = Math.max(this.viewH, Math.floor(this.viewH * 3));
+        this.ox = 0;
+        this.oy = 0;
+        this.camX = Math.floor((this.arenaW - this.viewW) / 2);
+        this.camY = Math.floor((this.arenaH - this.viewH) / 2);
+    }
+
+    // camera follows the player's largest cell, clamped to the map
+    private updateCamera() {
+        const lead = this.getLargestPlayerCell();
+        if (lead == null) {
+            return;
+        }
+        const tx = this.clamp(lead.x - this.viewW / 2, 0, this.arenaW - this.viewW);
+        const ty = this.clamp(lead.y - this.viewH / 2, 0, this.arenaH - this.viewH);
+        this.camX += (tx - this.camX) * 0.15;
+        this.camY += (ty - this.camY) * 0.15;
     }
 
     private playSfx(freq: number, duration: number, pause: number = 0) {
@@ -80,7 +100,7 @@ class Game {
         const x = this.rand(10, this.arenaW - 10);
         const y = this.rand(10, this.arenaH - 10);
         const m = this.rand(2, 5);
-        const shape = Math.floor(this.rand(0, 4));
+        const shape = Math.floor(this.rand(0, 3));
         const color = this.foodColors[Math.floor(this.rand(0, this.foodColors.length))];
         this.foods.push(new Blob(x, y, m, 0, 0, color, shape));
     }
@@ -158,7 +178,7 @@ class Game {
             newMass,
             dir.x * 2.4,
             dir.y * 2.4,
-            COLOR_THEME_SECONDARY2
+            GREEN
         );
 
         source.vx -= dir.x * 0.8;
@@ -210,16 +230,16 @@ class Game {
         this.score = 0;
         this.blobs = [];
         this.foods = [];
-        this.playerCells = [new Blob(this.arenaW / 2, this.arenaH / 2, 28, 0, 0, COLOR_THEME_SECONDARY2)];
+        this.playerCells = [new Blob(this.arenaW / 2, this.arenaH / 2, 42, 0, 0, GREEN)];
         this.splitCooldownUntil = 0;
         this.ejectCooldownUntil = 0;
         this.mergeAllowedAt = 0;
 
-        for (let i = 0; i < 25; i++) {
+        for (let i = 0; i < 80; i++) {
             this.spawnFood();
         }
 
-        for (let i = 0; i < 8; i++) {
+        for (let i = 0; i < 14; i++) {
             this.spawnEnemy(this.rand(10, 38));
         }
 
@@ -440,10 +460,10 @@ class Game {
     }
 
     private balanceWorld() {
-        if (this.foods.length < 20) {
+        if (this.foods.length < 65) {
             this.spawnFood();
         }
-        if (this.blobs.length < 6) {
+        if (this.blobs.length < 10) {
             this.spawnEnemy(this.rand(10, Math.min(this.totalPlayerMass() * 1.2, 56)));
         }
     }
@@ -466,17 +486,20 @@ class Game {
             return;
         }
 
-        if ((event == EVT_ENTER_BREAK || event == EVT_VIRTUAL_ENTER) && this.phase == this.state.playing) {
+        if ((event == EVT_ENTER_BREAK || event == EVT_VIRTUAL_ENTER || event == EVT_PAGE_BREAK) && this.phase == this.state.playing) {
             this.splitPlayer();
             return;
         }
 
-        if ((event == EVT_PLUS_FIRST || event == EVT_TELEM_FIRST || event == EVT_VIRTUAL_MENU) && this.phase == this.state.playing) {
+        if (
+            (event == EVT_PLUS_FIRST || event == EVT_TELEM_FIRST || event == EVT_VIRTUAL_MENU || event == EVT_MODEL_FIRST) &&
+            this.phase == this.state.playing
+        ) {
             this.ejectMass();
             return;
         }
 
-        if (event == EVT_MODEL_FIRST) {
+        if (event == EVT_ENTER_LONG) {
             if (this.phase == this.state.playing) {
                 this.phase = this.state.paused;
                 this.playSfx(420, 60, 0);
@@ -488,74 +511,67 @@ class Game {
     }
 
     private drawBlob(b: Blob) {
-        const x = this.ox + b.x;
-        const y = this.oy + b.y;
+        const x = b.x - this.camX;
+        const y = this.hudTop + (b.y - this.camY);
         const r = b.radius();
         (lcd.drawFilledCircle as unknown as (cx: number, cy: number, radius: number, flags?: number) => void)(x, y, r, b.color);
-        (lcd.drawCircle as unknown as (cx: number, cy: number, radius: number, flags?: number) => void)(x, y, r, COLOR_THEME_PRIMARY2);
     }
 
-    // foods: square = cheap rect, others = clean rect+triangle shapes
+    // foods use EdgeTX's default shapes (circle / square / triangle) with random colors
     private drawFood(f: Blob) {
-        const x = this.ox + f.x;
-        const y = this.oy + f.y;
+        const x = f.x - this.camX;
+        const y = this.hudTop + (f.y - this.camY);
         const r = Math.max(3, f.radius());
-        if (f.shape == 0) {
+        if (f.shape == 1) {
             lcd.drawFilledRectangle(x - r, y - r, r * 2, r * 2, f.color);
-        } else if (f.shape == 1) {
+        } else if (f.shape == 2) {
             (lcd.drawFilledTriangle as unknown as (
                 x1: number, y1: number, x2: number, y2: number, x3: number, y3: number, flags?: number
             ) => void)(x, y - r, x + r * 0.866, y + r * 0.5, x - r * 0.866, y + r * 0.5, f.color);
-        } else if (f.shape == 2) {
-            this.drawPentagon(x, y, r, f.color);
         } else {
-            this.drawHexagon(x, y, r, f.color);
+            (lcd.drawFilledCircle as unknown as (cx: number, cy: number, radius: number, flags?: number) => void)(
+                x,
+                y,
+                r,
+                f.color
+            );
         }
     }
 
-    // pentagon = center band + top + 2 side triangles, avoids center-fan seams
-    private drawPentagon(cx: number, cy: number, r: number, color: number) {
-        const w = r * 0.951;
-        const w2 = r * 0.588;
-        const h1 = r * 0.309;
-        const h2 = r * 0.809;
-        const tri = lcd.drawFilledTriangle as unknown as (
+    private drawArena() {
+        // the view is always inside the map, so fill it with the arena colour
+        lcd.drawFilledRectangle(0, this.hudTop, this.viewW, this.viewH, COLOR_THEME_SECONDARY3);
+        const draw = lcd.drawLine as unknown as (
             x1: number,
             y1: number,
             x2: number,
             y2: number,
-            x3: number,
-            y3: number,
+            pattern: number,
             flags?: number
         ) => void;
-        lcd.drawFilledRectangle(cx - w2, cy - h1, w2 * 2, h1 + h2, color);
-        tri(cx, cy - r, cx + w, cy - h1, cx - w, cy - h1, color);
-        tri(cx + w, cy - h1, cx + w2, cy + h2, cx + w2, cy - h1, color);
-        tri(cx - w, cy - h1, cx - w2, cy - h1, cx - w2, cy + h2, color);
-    }
-
-    // hexagon = center band + 2 triangles, avoids center-fan seams
-    private drawHexagon(cx: number, cy: number, r: number, color: number) {
-        const hw = r * 0.866;
-        const hy = r * 0.5;
-        const tri = lcd.drawFilledTriangle as unknown as (
-            x1: number,
-            y1: number,
-            x2: number,
-            y2: number,
-            x3: number,
-            y3: number,
-            flags?: number
-        ) => void;
-        lcd.drawFilledRectangle(cx - hw, cy - hy, hw * 2, r, color);
-        tri(cx, cy - r, cx + hw, cy - hy, cx - hw, cy - hy, color);
-        tri(cx, cy + r, cx + hw, cy + hy, cx - hw, cy + hy, color);
+        const bot = this.hudTop + this.viewH;
+        const lx = -this.camX;
+        if (lx >= 0 && lx <= this.viewW) {
+            draw(lx, this.hudTop, lx, bot, SOLID, COLOR_THEME_PRIMARY1);
+        }
+        const rx = this.arenaW - this.camX;
+        if (rx >= 0 && rx <= this.viewW) {
+            draw(rx, this.hudTop, rx, bot, SOLID, COLOR_THEME_PRIMARY1);
+        }
+        const ty = this.hudTop - this.camY;
+        if (ty >= this.hudTop && ty <= bot) {
+            draw(0, ty, this.viewW, ty, SOLID, COLOR_THEME_PRIMARY1);
+        }
+        const by = this.hudTop + this.arenaH - this.camY;
+        if (by >= this.hudTop && by <= bot) {
+            draw(0, by, this.viewW, by, SOLID, COLOR_THEME_PRIMARY1);
+        }
     }
 
     private drawHud() {
-        const localX = this.ox + 6;
-        const localY = this.oy + 4;
-        const rightX = this.ox + this.arenaW - 6;
+        const localX = 6;
+        const localY = 4;
+        const rightX = this.w - 6;
 
         lcd.drawText(localX, localY, `Score: ${this.score}`, SMLSIZE | COLOR_THEME_PRIMARY1);
         lcd.drawText(localX, localY + 14, `Mass: ${Math.floor(this.totalPlayerMass())}`, SMLSIZE | COLOR_THEME_PRIMARY1);
@@ -571,8 +587,7 @@ class Game {
 
     private draw() {
         lcd.clear(COLOR_THEME_PRIMARY2);
-        lcd.drawFilledRectangle(this.ox, this.oy, this.arenaW, this.arenaH, COLOR_THEME_SECONDARY3);
-        lcd.drawRectangle(this.ox, this.oy, this.arenaW, this.arenaH, COLOR_THEME_PRIMARY1);
+        this.drawArena();
 
         for (let i = 0; i < this.foods.length; i++) {
             this.drawFood(this.foods[i]);
@@ -606,6 +621,9 @@ class Game {
         if (this.phase == this.state.playing && now - this.lastTick >= this.tickCs) {
             this.updateGame();
             this.lastTick = now;
+        }
+        if (this.phase == this.state.playing) {
+            this.updateCamera();
         }
 
         this.draw();
