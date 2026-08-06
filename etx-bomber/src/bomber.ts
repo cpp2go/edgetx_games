@@ -196,6 +196,10 @@ class Game {
             [1, this.cols - 2],
             [this.rows - 2, 1],
         ];
+        // track the 3x3 zone around each corner spawn: these cells must
+        // never hold a wall or brick, so the player/enemies can't spawn
+        // inside one
+        const spawnZone: number[] = [];
         for (let k = 0; k < spawns.length; k++) {
             const sr = spawns[k][0];
             const sc = spawns[k][1];
@@ -203,18 +207,26 @@ class Game {
                 for (let dc = -1; dc <= 1; dc++) {
                     const rr = sr + dr;
                     const cc = sc + dc;
-                    if (rr >= 0 && rr < this.rows && cc >= 0 && cc < this.cols && this.grid[rr][cc] != 1) {
-                        this.grid[rr][cc] = 0;
+                    if (rr >= 0 && rr < this.rows && cc >= 0 && cc < this.cols) {
+                        // always force the spawn cell itself open; clear the
+                        // rest of the zone except for permanent walls
+                        if ((rr == sr && cc == sc) || this.grid[rr][cc] != 1) {
+                            this.grid[rr][cc] = 0;
+                        }
+                        spawnZone.push(rr * this.cols + cc);
                     }
                 }
             }
         }
 
-        // bricks
+        // bricks (never on a spawn zone)
         const brickChance = 0.45 + this.difficulty * 0.05;
         for (let r = 1; r < this.rows - 1; r++) {
             for (let c = 1; c < this.cols - 1; c++) {
                 if (this.grid[r][c] != 0) {
+                    continue;
+                }
+                if (spawnZone.indexOf(r * this.cols + c) >= 0) {
                     continue;
                 }
                 if (Math.random() < brickChance) {

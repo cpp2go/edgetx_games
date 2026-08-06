@@ -29,11 +29,10 @@ class Game {
     private state = { initial: 0, playing: 1, win: 2, gameOver: 3 };
     private phase = this.state.initial;
 
-    private hudTop = 22;
     private ox = 0;
     private oy = 0;
-    private btnW = 40;
-    private btnH = 20;
+    private btnW = 30;
+    private btnH = 16;
 
     private numColors = [0, BLUE, GREEN, RED, ORANGE, DARKRED, YELLOW, WHITE, GREY];
 
@@ -60,14 +59,16 @@ class Game {
     }
 
     private layout() {
-        const availH = this.h - this.hudTop - 2;
+        // full screen: the board fills the display below a thin status strip,
+        // so the top row of cells is never covered by the overlay
         const cols = this.diffCols[this.difficulty];
         const rows = this.diffRows[this.difficulty];
-        const cellW = Math.floor((this.w - 8) / cols);
+        const availH = this.h - this.btnH - 4;
+        const cellW = Math.floor((this.w - 4) / cols);
         const cellH = Math.floor(availH / rows);
         this.cell = Math.max(12, Math.min(cellW, cellH, 40));
         this.ox = Math.floor((this.w - this.cell * cols) / 2);
-        this.oy = this.hudTop + Math.floor((availH - this.cell * rows) / 2);
+        this.oy = this.btnH + 2 + Math.floor((availH - this.cell * rows) / 2);
     }
 
     private newGame() {
@@ -456,6 +457,8 @@ class Game {
     }
 
     private drawHud() {
+        // thin strip overlaid on the full-screen board so the status stays readable
+        lcd.drawFilledRectangle(1, 1, this.w - 2, this.btnH + 1, COLOR_THEME_SECONDARY1);
         lcd.drawText(4, 3, `M: ${this.mines - this.flagsPlaced}`, SMLSIZE | COLOR_THEME_PRIMARY1);
         lcd.drawText(this.w * 0.32, 3, `T: ${Math.floor(this.elapsed)}`, SMLSIZE | CENTER | COLOR_THEME_PRIMARY1);
         const b = this.best[this.difficulty] < 0 ? '-' : `${Math.floor(this.best[this.difficulty])}`;
@@ -475,12 +478,13 @@ class Game {
 
     private draw() {
         lcd.clear(COLOR_THEME_PRIMARY2);
-        this.drawHud();
         for (let r = 0; r < this.rows; r++) {
             for (let c = 0; c < this.cols; c++) {
                 this.drawCell(r, c);
             }
         }
+        // overlay status + buttons on top of the full-screen board
+        this.drawHud();
 
         if (this.phase == this.state.initial) {
             this.drawOverlay(`MINESWEEPER\nDifficulty: ${this.diffNames[this.difficulty]}\n+/- change  SYS start`);
