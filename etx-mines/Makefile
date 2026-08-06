@@ -11,10 +11,8 @@ lua: deps
 	node_modules/.bin/tstl
 	mkdir -p $(DEST)/SCRIPTS
 	mkdir -p $(DEST)/IMAGES
-	mkdir -p $(DEST)/SOUNDS
-	cp -f src/breakout.lua $(DEST)/SCRIPTS/Breakout.lua
-	cp -f src/breakout-widget.lua $(DEST)/breakout.lua
-	cp -f SOUNDS/*.wav $(DEST)/SOUNDS/
+	cp -f src/mines.lua $(DEST)/SCRIPTS/Mines.lua
+	cp -f src/mines-widget.lua $(DEST)/mines.lua
 
 clean:
 	rm -f package-lock.json

@@ -35,6 +35,7 @@ class Game {
 
     private lastTick = 0;
     private soundEnabled = true;
+    private lastMoveSfx = 0;
 
     constructor(private w: number, private h: number) {
         this.computeLayout();
@@ -57,6 +58,26 @@ class Game {
             return;
         }
         (playTone as unknown as (f: number, d: number, p: number) => void)(freq, duration, pause);
+    }
+
+    // play a WAV from the SOUNDS folder; fall back to a tone if not found
+    private playSfxFile(file: string, freq: number, duration: number) {
+        if (!this.soundEnabled) {
+            return;
+        }
+        const tries = [
+            `./SOUNDS/en/${file}`,
+            `./SOUNDS/${file}`,
+            `/SOUNDS/en/${file}`,
+            `/SOUNDS/${file}`,
+        ];
+        for (let i = 0; i < tries.length; i++) {
+            const ok = (playFile as unknown as (p: string) => boolean)(tries[i]);
+            if (ok) {
+                return;
+            }
+        }
+        (playTone as unknown as (f: number, d: number, p: number) => void)(freq, duration, 0);
     }
 
     private clamp(v: number, minV: number, maxV: number): number {
@@ -136,7 +157,7 @@ class Game {
         const speed = 1.0 + (this.level - 1) * 0.15;
         this.ballVx = 6.0 * speed;
         this.ballVy = -9.0 * speed;
-        this.playSfx(880, 60, 0);
+        this.playSfxFile('launch.wav', 880, 60);
     }
 
     private restart() {
@@ -148,7 +169,7 @@ class Game {
         this.resetBall(true);
         this.phase = this.state.playing;
         this.lastTick = getTime();
-        this.playSfx(860, 90, 0);
+        this.playSfxFile('start.wav', 860, 90);
     }
 
     private nextLevel() {
@@ -158,14 +179,24 @@ class Game {
         this.resetBall(true);
         this.phase = this.state.playing;
         this.lastTick = getTime();
-        this.playSfx(980, 200, 0);
+        this.playSfxFile('level.wav', 980, 200);
     }
 
     private updatePaddle() {
         const stick = getValue('ail') / 1024;
         const maxStep = Math.max(4, Math.floor(this.w * 0.03));
+        const before = this.paddleX;
         this.paddleX += stick * maxStep;
         this.paddleX = this.clamp(this.paddleX, this.paddleW / 2, this.w - this.paddleW / 2);
+
+        // soft tick while the paddle is being moved (throttled)
+        if (Math.abs(this.paddleX - before) > 0.5 && Math.abs(stick) > 0.1) {
+            const now = getTime();
+            if (now - this.lastMoveSfx >= 15) {
+                this.lastMoveSfx = now;
+                this.playSfxFile('move.wav', 520, 10);
+            }
+        }
 
         if (this.ballStuck) {
             this.ballX = this.paddleX;
@@ -192,7 +223,7 @@ class Game {
         this.ballVy = -Math.abs(this.ballVy);
         this.ballVx = ratio * 3.4;
         this.ballY = py0 - this.ballR - 1;
-        this.playSfx(640, 20, 0);
+        this.playSfxFile('bounce.wav', 640, 20);
     }
 
     private hitBrick(b: Brick) {
@@ -200,17 +231,17 @@ class Game {
         if (b.hp <= 0) {
             this.bricksRemaining -= 1;
             this.score += 10;
-            this.playSfx(520, 35, 0);
+            this.playSfxFile('brick.wav', 520, 35);
         } else {
             b.color = COLOR_THEME_SECONDARY1;
             this.score += 4;
-            this.playSfx(760, 18, 0);
+            this.playSfxFile('brickhit.wav', 760, 18);
         }
 
         if (this.bricksRemaining <= 0) {
             this.best = Math.max(this.best, this.score);
             this.phase = this.state.win;
-            this.playSfx(980, 130, 0);
+            this.playSfxFile('level.wav', 980, 130);
         }
     }
 
@@ -268,17 +299,17 @@ class Game {
             if (this.ballX - this.ballR <= 0) {
                 this.ballX = this.ballR;
                 this.ballVx = Math.abs(this.ballVx);
-                this.playSfx(420, 12, 0);
+                this.playSfxFile('bounce.wav', 420, 12);
             } else if (this.ballX + this.ballR >= this.w) {
                 this.ballX = this.w - this.ballR;
                 this.ballVx = -Math.abs(this.ballVx);
-                this.playSfx(420, 12, 0);
+                this.playSfxFile('bounce.wav', 420, 12);
             }
 
             if (this.ballY - this.ballR <= 0) {
                 this.ballY = this.ballR;
                 this.ballVy = Math.abs(this.ballVy);
-                this.playSfx(420, 12, 0);
+                this.playSfxFile('bounce.wav', 420, 12);
             }
 
             this.handlePaddleCollision(prevY);
@@ -286,7 +317,7 @@ class Game {
 
             if (this.ballY - this.ballR > this.h) {
                 this.lives -= 1;
-                this.playSfx(180, 180, 0);
+                this.playSfxFile('lose.wav', 180, 180);
                 if (this.lives <= 0) {
                     this.best = Math.max(this.best, this.score);
                     this.phase = this.state.gameOver;

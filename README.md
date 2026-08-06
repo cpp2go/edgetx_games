@@ -8,12 +8,15 @@ A collection of arcade games for EdgeTX / OpenTX transmitters with a color displ
 |--------|------|-------------|
 | `etx-agar` | **Agar** | Simplified agar.io — your blob eats smaller blobs to grow |
 | `etx-asteroids` | **Asteroids** | Classic arcade Asteroids |
+| `etx-bomber` | **Bomberman** | Bomberman: place timed bombs, cross-shaped flames, brick-dropped power-ups |
 | `etx-breakout` | **Breakout** | Brick-breaking game with multiple levels and increasing difficulty |
-| `etx-galuaxian` | **GaLuaxian** | Galaga-style space shooter (standalone script, no widget) |
+| `etx-galuaxian` | **GaLuaxian** | Galaga-style space shooter (TypeScript-built, with widget + sounds) |
 | `etx-link` | **Link** | Tile-matching puzzle game (LianLianKan / Mahjong Connect style) |
 | `etx-match3` | **Match3** | Match-3 puzzle (消消乐): swap tiles to line up 3+ same colors, with bomb specials |
+| `etx-mines` | **Minesweeper** | Classic Minesweeper with 3 difficulties, flag mode and per-difficulty best times |
 | `etx-racer` | **Racer** | Arcade lane racer |
 | `etx-snake` | **Snake** | Classic Snake |
+| `etx-sudoku` | **Sudoku** | Classic 9×9 Sudoku with 3 difficulties, touch number pad + hints |
 | `etx-tetris` | **Tetris** | Classic Tetris |
 
 ## Supported Transmitters
