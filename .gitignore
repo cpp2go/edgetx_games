@@ -3,3 +3,6 @@
 
 # Local editor history
 .history/
+
+# Build output (use build-all.ps1 -> root _site)
+**/_site/

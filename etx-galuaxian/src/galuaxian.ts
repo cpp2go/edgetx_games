@@ -73,6 +73,8 @@ function playSfxFile(file: string, freq: number, duration: number) {
         return;
     }
     const tries = [
+        `./SOUNDS/galuaxian/${file}`,
+        `/SOUNDS/galuaxian/${file}`,
         `./SOUNDS/en/${file}`,
         `./SOUNDS/${file}`,
         `/SOUNDS/en/${file}`,

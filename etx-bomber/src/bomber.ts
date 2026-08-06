@@ -114,6 +114,8 @@ class Game {
             return;
         }
         const tries = [
+            `./SOUNDS/bomber/${file}`,
+            `/SOUNDS/bomber/${file}`,
             `./SOUNDS/en/${file}`,
             `./SOUNDS/${file}`,
             `/SOUNDS/en/${file}`,
