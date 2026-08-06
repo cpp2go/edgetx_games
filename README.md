@@ -76,6 +76,5 @@ Then: **SYS** → **Scripts** → select the game.
 
 ![微信赞赏码](docs/donate.png)
 
-> 捐赠二维码图片放在 `docs/donate.png`（想用其它位置/文件名，直接改上面这一行的路径即可）。
 
 
