@@ -2,6 +2,14 @@
 
 A collection of arcade games for EdgeTX / OpenTX transmitters with a color display.
 
+## 下载 / Download
+
+打包好的全部游戏（脚本 + 图片 + 音效）：
+
+[📦 下载 GAMES.zip（v1.0）](https://github.com/cpp2go/edgetx_games/releases/download/v1.0/GAMES.zip)
+
+解压后按下方安装说明，把 `SCRIPTS/`、`IMAGES/`、`SOUNDS/` 拷贝到遥控器 SD 卡即可。
+
 ## Games
 
 | Folder | Game | Description |

@@ -45,7 +45,7 @@ interface Player {
 }
 
 class Game {
-    private cols = 13;
+    private cols = 15;
     private rows = 9;
     private cell = 32;
 
@@ -65,18 +65,18 @@ class Game {
     ];
 
     private diffNames = ['EASY', 'MEDIUM', 'HARD'];
-    private diffEnemies = [3, 4, 5];
+    private diffEnemies = [5, 7, 9];
     private difficulty = 1;
 
     private bombCount = 1;
     private bombPower = 1;
     private speedBoost = 1;
-    private moveSpeed = 0.045;
+    private moveSpeed = 0.18;
     private enemySpeed = 0.02;
-    private bombFuse = 200;
-    private flameTime = 40;
+    private bombFuse = 47;
+    private flameTime = 10;
 
-    private hudTop = 22;
+    private hudTop = 26;
     private ox = 0;
     private oy = 0;
 
@@ -152,12 +152,13 @@ class Game {
     }
 
     private layout() {
+        // top strip is one line of text; board centered with normal cells
         const availH = this.h - this.hudTop - 4;
-        const cw = Math.floor((this.w - 8) / this.cols);
+        const cw = Math.floor((this.w - 4) / this.cols);
         const ch = Math.floor(availH / this.rows);
-        this.cell = Math.max(12, Math.min(cw, ch, 40));
+        this.cell = Math.max(12, Math.min(cw, ch, 33));
         this.ox = Math.floor((this.w - this.cell * this.cols) / 2);
-        this.oy = this.hudTop + Math.floor((availH - this.cell * this.rows) / 2);
+        this.oy = this.hudTop + Math.floor((availH - this.cell * this.rows) / 2) + 3;
     }
 
     private newGame() {
@@ -748,7 +749,7 @@ class Game {
         } else if (event == EVT_VIRTUAL_NEXT || event == EVT_VIRTUAL_NEXT_REPT) {
             this.attemptMove(0, 1);
         } else if (event == EVT_TELEM_FIRST) {
-            this.attemptMove(-1, 0);
+            this.placeBomb();
         } else if (event == EVT_VIRTUAL_NEXT_PAGE || event == EVT_VIRTUAL_PREV_PAGE) {
             this.attemptMove(1, 0);
         } else if (event == EVT_ENTER_BREAK || event == EVT_VIRTUAL_ENTER || event == EVT_MODEL_FIRST) {
@@ -764,17 +765,8 @@ class Game {
 
     private draw() {
         lcd.clear(COLOR_THEME_PRIMARY2);
-
-        // HUD
-        lcd.drawText(4, 3, `Bomb:${this.bombCount} Pow:${this.bombPower}`, SMLSIZE | COLOR_THEME_PRIMARY1);
-        let alive = 0;
-        for (let i = 0; i < this.enemies.length; i++) {
-            if (!this.enemies[i].dead) {
-                alive++;
-            }
-        }
-        lcd.drawText(this.w / 2, 3, `Enemy:${alive}`, SMLSIZE | CENTER | COLOR_THEME_PRIMARY1);
-        lcd.drawText(this.w - 4, 3, this.diffNames[this.difficulty], SMLSIZE | RIGHT | COLOR_THEME_PRIMARY1);
+        // slim top strip for the score HUD
+        lcd.drawFilledRectangle(0, 0, this.w, this.hudTop, COLOR_THEME_SECONDARY1);
 
         // floor / walls / bricks
         for (let r = 0; r < this.rows; r++) {
@@ -892,6 +884,17 @@ class Game {
                 COLOR_THEME_PRIMARY2
             );
         }
+
+        // HUD overlaid on top of the full-screen board
+        lcd.drawText(4, 3, `Bomb:${this.bombCount} Pow:${this.bombPower}`, SMLSIZE | COLOR_THEME_PRIMARY1);
+        let alive = 0;
+        for (let i = 0; i < this.enemies.length; i++) {
+            if (!this.enemies[i].dead) {
+                alive++;
+            }
+        }
+        lcd.drawText(this.w / 2, 3, `Enemy:${alive}`, SMLSIZE | CENTER | COLOR_THEME_PRIMARY1);
+        lcd.drawText(this.w - 4, 3, this.diffNames[this.difficulty], SMLSIZE | RIGHT | COLOR_THEME_PRIMARY1);
 
         if (this.phase == this.state.initial) {
             this.drawOverlay(`BOMBERMAN\nDifficulty: ${this.diffNames[this.difficulty]}\n+/- change  SYS start`);
