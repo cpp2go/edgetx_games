@@ -1,9 +1,11 @@
 declare function getLastPos(): LuaMultiReturn<[unknown, unknown]>;
 
 interface Block {
-    u: number; // forward position along the diagonal
+    u: number; // position along the u axis (screen down-right)
+    v: number; // position along the v axis (screen up-right)
     top: number; // height of the top surface above the ground
     color: number; // palette index
+    dir: number; // direction from the previous block to this one: 0 = +u, 1 = +v
 }
 
 interface Palette {
@@ -18,6 +20,11 @@ class Game {
     private w: number;
     private h: number;
 
+    // direction axis constants: 0 = +u (straight ahead, screen up-right),
+    // 1 = v (turning axis; turning goes up-left, i.e. -v)
+    private DIR_U = 0;
+    private DIR_V = 1;
+
     // isometric projection constants
     private A = 0.866;
     private B = 0.5;
@@ -28,13 +35,17 @@ class Game {
     private OY = 275;
 
     private camU = 0;
+    private camV = 0; // camera pan along the v axis (turning)
     private nextSlide = 0; // visual offset while a new block slides in
-    private leaving: Block | null = null; // old block sliding out (bottom-left)
+    private nextSlideV = 0; // lateral slide offset when turning
+    private leaving: Block | null = null; // old block sliding out
     private leaveSlide = 0;
-    private cur: Block = { u: 0, top: 40, color: 0 };
-    private next: Block = { u: 120, top: 40, color: 1 };
+    private leaveSlideV = 0;
+    private cur: Block = { u: 0, v: 0, top: 40, color: 0, dir: 0 };
+    private next: Block = { u: 120, v: 0, top: 40, color: 1, dir: 0 };
 
-    private cu = 0; // character forward position
+    private cu = 0; // character world u
+    private cv = 0; // character world v
     private ch = 0; // character height above the ground (feet)
     private vx = 0;
     private vh = 0; // vertical velocity (positive = up)
@@ -71,8 +82,8 @@ class Game {
     constructor(w: number, h: number) {
         this.w = w;
         this.h = h;
-        this.OX = Math.floor(w * 0.32);
-        this.OY = h - 45;
+        this.OX = Math.floor(w * 0.5); // centered so up-left turning blocks stay on screen
+        this.OY = h - 70; // raised so turning blocks stay fully on screen
         this.palette = [
             { top: lcd.RGB(255, 222, 150), left: lcd.RGB(236, 152, 82), right: lcd.RGB(198, 104, 46), edge: lcd.RGB(140, 80, 30) },
             { top: lcd.RGB(205, 242, 150), left: lcd.RGB(130, 205, 95), right: lcd.RGB(78, 150, 52), edge: lcd.RGB(45, 95, 30) },
@@ -156,10 +167,13 @@ class Game {
         this.squash = 0;
         this.leaving = null;
         this.leaveSlide = 0;
+        this.leaveSlideV = 0;
         this.camU = 0;
-        this.cur = { u: 0, top: this.randRange(30, 55), color: 0 };
+        this.camV = 0;
+        this.cur = { u: 0, v: 0, top: this.randRange(30, 55), color: 0, dir: 0 };
         this.spawnNext();
         this.cu = this.cur.u;
+        this.cv = this.cur.v;
         this.ch = this.cur.top;
         this.vx = 0;
         this.vh = 0;
@@ -173,16 +187,24 @@ class Game {
     }
 
     private spawnNext() {
+        // randomly continue straight ahead or turn 90 degrees (up-left)
+        let dir = this.cur.dir;
+        if (Math.random() < 0.45) {
+            dir = 1 - dir; // turn onto the other axis
+        }
         // gap grows a little with score so the game gets harder
         const ramp = Math.min(this.score * 1.2, 50);
         const gap = this.randRange(70 + ramp, 150 + ramp);
         this.next = {
-            u: this.cur.u + gap,
+            u: this.cur.u + (dir == this.DIR_U ? gap : 0),
+            v: this.cur.v + (dir == this.DIR_V ? -gap : 0), // turn up-left (-v)
             top: this.randRange(30, 55),
             color: Math.floor(Math.random() * this.palette.length),
+            dir: dir,
         };
-        // new block starts off-screen (top-right) and slides into place
-        this.nextSlide = 330;
+        // new block starts off-screen and slides into place
+        this.nextSlide = dir == this.DIR_U ? 330 : 0;
+        this.nextSlideV = dir == this.DIR_V ? 330 : 0;
     }
 
     private startCharge() {
@@ -230,9 +252,20 @@ class Game {
         if (this.nextSlide > 0) {
             this.nextSlide = Math.max(0, this.nextSlide - dt * 800);
         }
+        if (this.nextSlideV > 0) {
+            this.nextSlideV = Math.max(0, this.nextSlideV - dt * 800);
+        }
         if (this.leaving != null) {
-            this.leaveSlide += dt * 800;
-            if (this.leaveSlide > 380) {
+            // the old block slides out the OPPOSITE way the CURRENT block slid
+            // in (regardless of how the old block itself originally arrived):
+            // new block up-right (+u) in  -> old slides down-left out
+            // new block up-left  (-v) in  -> old slides down-right out
+            if (this.next.dir == this.DIR_U) {
+                this.leaveSlide += dt * 800;
+            } else {
+                this.leaveSlideV += dt * 800;
+            }
+            if (this.leaveSlide > 380 || this.leaveSlideV > 380) {
                 this.leaving = null;
             }
         }
@@ -240,11 +273,17 @@ class Game {
             return;
         }
         const prevCh = this.ch;
-        this.cu += this.vx * dt;
+        // fly along the direction toward the target block (straight or turned)
+        if (this.next.dir == this.DIR_U) {
+            this.cu += this.vx * dt;
+        } else {
+            this.cv -= this.vx * dt; // turn up-left (-v)
+        }
         this.vh -= this.g * dt;
         this.ch += this.vh * dt;
-        // smooth diagonal camera pan during the jump
+        // smooth camera pan during the jump (both axes, for turns)
         this.camU += (this.cu - this.camU) * Math.min(1, dt * 5);
+        this.camV += (this.cv - this.camV) * Math.min(1, dt * 5);
         if (this.vh > 0) {
             return; // still rising
         }
@@ -252,8 +291,8 @@ class Game {
         // only count as landing when the character reaches the TOP surface
         // of the block from above (not when it sinks into the side)
         if (
-            this.cu >= this.next.u - this.s / 2 + m &&
-            this.cu <= this.next.u + this.s / 2 - m &&
+            Math.abs(this.cu - this.next.u) <= this.s / 2 - m &&
+            Math.abs(this.cv - this.next.v) <= this.s / 2 - m &&
             prevCh > this.next.top &&
             this.ch <= this.next.top
         ) {
@@ -261,8 +300,8 @@ class Game {
             return;
         }
         if (
-            this.cu >= this.cur.u - this.s / 2 + m &&
-            this.cu <= this.cur.u + this.s / 2 - m &&
+            Math.abs(this.cu - this.cur.u) <= this.s / 2 - m &&
+            Math.abs(this.cv - this.cur.v) <= this.s / 2 - m &&
             prevCh > this.cur.top &&
             this.ch <= this.cur.top
         ) {
@@ -276,6 +315,7 @@ class Game {
 
     private landOn(p: Block, advance: boolean) {
         this.cu = p.u;
+        this.cv = p.v;
         this.ch = p.top;
         this.vx = 0;
         this.vh = 0;
@@ -283,10 +323,12 @@ class Game {
         this.charging = false;
         this.charge = 0;
         this.camU = p.u;
+        this.camV = p.v;
         this.squash = 0.3;
         if (advance) {
             this.leaving = this.cur;
             this.leaveSlide = 0;
+            this.leaveSlideV = 0;
             this.score++;
             if (this.score > this.best) {
                 this.best = this.score;
@@ -361,24 +403,31 @@ class Game {
         }
     }
 
-    // y of the surface at a given forward u (used for the shadow and aim guide)
-    private surfaceAt(u: number): number {
-        if (u >= this.next.u - this.s / 2 && u <= this.next.u + this.s / 2) {
+    // y of the surface at a given world position (used for the shadow)
+    private surfaceAt(u: number, v: number): number {
+        if (
+            Math.abs(u - this.next.u) <= this.s / 2 &&
+            Math.abs(v - this.next.v) <= this.s / 2
+        ) {
             return this.next.top;
         }
-        if (u >= this.cur.u - this.s / 2 && u <= this.cur.u + this.s / 2) {
+        if (
+            Math.abs(u - this.cur.u) <= this.s / 2 &&
+            Math.abs(v - this.cur.v) <= this.s / 2
+        ) {
             return this.cur.top;
         }
         return 0;
     }
 
-    // isometric projection: screen = OX + (u + v) * A,  OY + (v - u) * B - h * C
+    // isometric projection: screen = OX + ((u-camU) + (v-camV)) * A,
+    //                        OY + ((v-camV) - (u-camU)) * B - h * C
     private projX(u: number, v: number): number {
-        return this.OX + ((u - this.camU) + v) * this.A;
+        return this.OX + ((u - this.camU) + (v - this.camV)) * this.A;
     }
 
     private projY(u: number, v: number, h: number): number {
-        return this.OY + (v - (u - this.camU)) * this.B - h * this.C;
+        return this.OY + ((v - this.camV) - (u - this.camU)) * this.B - h * this.C;
     }
 
     private drawGround() {
@@ -386,18 +435,34 @@ class Game {
         lcd.drawFilledRectangle(0, 0, this.w, this.h, lcd.RGB(228, 219, 202));
         // horizon
         lcd.drawFilledRectangle(0, 56, this.w, 2, lcd.RGB(202, 190, 170));
-        // grid lines on the ground (h = 0)
+        // grid lines on the ground (h = 0), following the camera
         const col = lcd.RGB(198, 185, 164);
         const step = this.s;
-        const lo = -8 * step;
-        const hi = 12 * step;
-        for (let ku = -4; ku <= 10; ku++) {
+        const u0 = Math.floor(this.camU / step) - 6;
+        const u1 = Math.floor(this.camU / step) + 12;
+        const v0 = Math.floor(this.camV / step) - 4;
+        const v1 = Math.floor(this.camV / step) + 4;
+        for (let ku = u0; ku <= u1; ku++) {
             const u = ku * step;
-            lcd.drawLine(this.projX(u, lo), this.projY(u, lo, 0), this.projX(u, hi), this.projY(u, hi, 0), SOLID, col);
+            lcd.drawLine(
+                this.projX(u, (v0 - 1) * step),
+                this.projY(u, (v0 - 1) * step, 0),
+                this.projX(u, (v1 + 1) * step),
+                this.projY(u, (v1 + 1) * step, 0),
+                SOLID,
+                col
+            );
         }
-        for (let kv = -4; kv <= 4; kv++) {
+        for (let kv = v0; kv <= v1; kv++) {
             const v = kv * step;
-            lcd.drawLine(this.projX(lo, v), this.projY(lo, v, 0), this.projX(hi, v), this.projY(hi, v, 0), SOLID, col);
+            lcd.drawLine(
+                this.projX((u0 - 1) * step, v),
+                this.projY((u0 - 1) * step, v, 0),
+                this.projX((u1 + 1) * step, v),
+                this.projY((u1 + 1) * step, v, 0),
+                SOLID,
+                col
+            );
         }
     }
 
@@ -447,33 +512,35 @@ class Game {
     }
 
     // soft 3D cast shadow under a cube (matches the cube footprint)
-    private drawBlockShadow(b: Block, uOff = 0) {
+    private drawBlockShadow(b: Block, uOff = 0, vOff = 0) {
         const u = b.u + uOff;
-        const x1 = this.projX(u - this.s / 2, -this.s / 2);
-        const y1 = this.projY(u - this.s / 2, -this.s / 2, 0);
-        const x2 = this.projX(u + this.s / 2, -this.s / 2);
-        const y2 = this.projY(u + this.s / 2, -this.s / 2, 0);
-        const x3 = this.projX(u + this.s / 2, this.s / 2);
-        const y3 = this.projY(u + this.s / 2, this.s / 2, 0);
-        const x4 = this.projX(u - this.s / 2, this.s / 2);
-        const y4 = this.projY(u - this.s / 2, this.s / 2, 0);
+        const v = b.v + vOff;
+        const x1 = this.projX(u - this.s / 2, v - this.s / 2);
+        const y1 = this.projY(u - this.s / 2, v - this.s / 2, 0);
+        const x2 = this.projX(u + this.s / 2, v - this.s / 2);
+        const y2 = this.projY(u + this.s / 2, v - this.s / 2, 0);
+        const x3 = this.projX(u + this.s / 2, v + this.s / 2);
+        const y3 = this.projY(u + this.s / 2, v + this.s / 2, 0);
+        const x4 = this.projX(u - this.s / 2, v + this.s / 2);
+        const y4 = this.projY(u - this.s / 2, v + this.s / 2, 0);
         // two layers: soft outer + darker core, both cast down-right
         this.drawShadowHex(x1, y1, x2, y2, x3, y3, x4, y4, this.s * 0.75, this.s * 0.42, lcd.RGB(205, 193, 173));
         this.drawShadowHex(x1, y1, x2, y2, x3, y3, x4, y4, this.s * 0.5, this.s * 0.28, lcd.RGB(186, 172, 151));
     }
 
     // isometric cube: bright top face + two shaded side faces
-    private drawBlock(b: Block, isNext: boolean, uOff = 0) {
+    private drawBlock(b: Block, isNext: boolean, uOff = 0, vOff = 0) {
         const p = this.palette[b.color % this.palette.length];
         const u = b.u + uOff;
-        const x1 = this.projX(u - this.s / 2, -this.s / 2);
-        const y1 = this.projY(u - this.s / 2, -this.s / 2, b.top);
-        const x2 = this.projX(u + this.s / 2, -this.s / 2);
-        const y2 = this.projY(u + this.s / 2, -this.s / 2, b.top);
-        const x3 = this.projX(u + this.s / 2, this.s / 2);
-        const y3 = this.projY(u + this.s / 2, this.s / 2, b.top);
-        const x4 = this.projX(u - this.s / 2, this.s / 2);
-        const y4 = this.projY(u - this.s / 2, this.s / 2, b.top);
+        const v = b.v + vOff;
+        const x1 = this.projX(u - this.s / 2, v - this.s / 2);
+        const y1 = this.projY(u - this.s / 2, v - this.s / 2, b.top);
+        const x2 = this.projX(u + this.s / 2, v - this.s / 2);
+        const y2 = this.projY(u + this.s / 2, v - this.s / 2, b.top);
+        const x3 = this.projX(u + this.s / 2, v + this.s / 2);
+        const y3 = this.projY(u + this.s / 2, v + this.s / 2, b.top);
+        const x4 = this.projX(u - this.s / 2, v + this.s / 2);
+        const y4 = this.projY(u - this.s / 2, v + this.s / 2, b.top);
 
         // screen extremes of the top diamond
         const topP = y1 <= y2 && y1 <= y3 && y1 <= y4 ? 1 : y2 <= y3 && y2 <= y4 ? 2 : y3 <= y4 ? 3 : 4;
@@ -518,9 +585,9 @@ class Game {
     }
 
     private drawCharacter() {
-        const sx = this.projX(this.cu, 0);
-        const sy = this.projY(this.cu, 0, this.ch);
-        const surf = this.surfaceAt(this.cu);
+        const sx = this.projX(this.cu, this.cv);
+        const sy = this.projY(this.cu, this.cv, this.ch);
+        const surf = this.surfaceAt(this.cu, this.cv);
         const rise = Math.max(0, surf - this.ch);
 
         // 3D drop shadow on the surface directly below the character
@@ -529,8 +596,8 @@ class Game {
             const [sw, sh] = Bitmap.getSize(this.shadowImg);
             const shw = Math.floor((sw * shScale) / 100);
             const shh = Math.floor((sh * shScale) / 100);
-            const sxs = this.projX(this.cu, 0);
-            const sys = this.projY(this.cu, 0, surf);
+            const sxs = this.projX(this.cu, this.cv);
+            const sys = this.projY(this.cu, this.cv, surf);
             lcd.drawBitmap(this.shadowImg, Math.floor(sxs - shw / 2), Math.floor(sys - shh / 2), shScale);
         }
 
@@ -586,14 +653,18 @@ class Game {
     private draw() {
         lcd.clear(COLOR_THEME_PRIMARY2);
         this.drawGround();
-        this.drawBlockShadow(this.next, this.nextSlide);
-        this.drawBlock(this.next, true, this.nextSlide);
+        // the next block slides in from its own direction: straight blocks come
+        // from up-right (+u), turning blocks slide out from up-left (-v)
+        this.drawBlockShadow(this.next, this.nextSlide, -this.nextSlideV);
+        this.drawBlock(this.next, true, this.nextSlide, -this.nextSlideV);
         if (this.leaving != null) {
-            this.drawBlockShadow(this.leaving, -this.leaveSlide);
-            this.drawBlock(this.leaving, false, -this.leaveSlide);
+            // old block slides out the opposite way it came in:
+            // up-right (+u) in -> down-left out, up-left (-v) in -> down-right out
+            this.drawBlockShadow(this.leaving, -this.leaveSlide, this.leaveSlideV);
+            this.drawBlock(this.leaving, false, -this.leaveSlide, this.leaveSlideV);
         }
-        this.drawBlockShadow(this.cur, 0);
-        this.drawBlock(this.cur, false, 0);
+        this.drawBlockShadow(this.cur, 0, 0);
+        this.drawBlock(this.cur, false, 0, 0);
 
         this.drawCharacter();
 
