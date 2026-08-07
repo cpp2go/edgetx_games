@@ -1,14 +1,16 @@
 # EdgeTX Games
 
+[![简体中文](https://img.shields.io/badge/%E7%AE%80%E4%BD%93%E4%B8%AD%E6%96%87-%E4%B8%AD%E6%96%87%E7%89%88-blue)](README_zh.md)
+
 A collection of arcade games for EdgeTX / OpenTX transmitters with a color display.
 
-## 下载 / Download
+## Download
 
-打包好的全部游戏（脚本 + 图片 + 音效）：
+All games are pre-packaged (scripts + images + sounds):
 
-[📦 下载 GAMES.zip（v1.0）](https://github.com/cpp2go/edgetx_games/releases/download/v1.0/GAMES.zip)
+[📦 Download GAMES.zip (v1.0)](https://github.com/cpp2go/edgetx_games/releases/download/v1.0/GAMES.zip)
 
-解压后按下方安装说明，把 `SCRIPTS/`、`IMAGES/`、`SOUNDS/` 拷贝到遥控器 SD 卡即可。
+After unzipping, follow the install steps below and copy `SCRIPTS/`, `IMAGES/`, `SOUNDS/` to the radio's SD card.
 
 ## Games
 
@@ -19,8 +21,9 @@ A collection of arcade games for EdgeTX / OpenTX transmitters with a color displ
 | `etx-bomber` | **Bomberman** | Bomberman: place timed bombs, cross-shaped flames, brick-dropped power-ups |
 | `etx-breakout` | **Breakout** | Brick-breaking game with multiple levels and increasing difficulty |
 | `etx-galuaxian` | **GaLuaxian** | Galaga-style space shooter (TypeScript-built, with widget + sounds) |
+| `etx-jumpjump` | **Jump Jump** | Isometric 3D jump game with images, animations, SFX & music |
 | `etx-link` | **Link** | Tile-matching puzzle game (LianLianKan / Mahjong Connect style) |
-| `etx-match3` | **Match3** | Match-3 puzzle (消消乐): swap tiles to line up 3+ same colors, with bomb specials |
+| `etx-match3` | **Match3** | Match-3 puzzle: swap tiles to line up 3+ same colors, with bomb specials |
 | `etx-mines` | **Minesweeper** | Classic Minesweeper with 3 difficulties, flag mode and per-difficulty best times |
 | `etx-racer` | **Racer** | Arcade lane racer |
 | `etx-snake` | **Snake** | Classic Snake |
@@ -78,11 +81,11 @@ Copy only the script file:
 
 Then: **SYS** → **Scripts** → select the game.
 
-## 支持一下 / Donate
+## Donate
 
-如果这些游戏对你有帮助，欢迎扫码支持一下 ☕
+If these games are helpful to you, feel free to buy me a coffee ☕
 
-![微信赞赏码](docs/donate.png)
+![WeChat donate QR](docs/donate.png)
 
 
 
