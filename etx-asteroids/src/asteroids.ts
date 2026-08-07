@@ -1,508 +1,532 @@
-interface Bullet {
+declare function getLastPos(): LuaMultiReturn<[unknown, unknown]>;
+
+interface Shot {
     x: number;
     y: number;
     vx: number;
     vy: number;
-    life: number;
 }
 
-interface Rock {
+interface Comet {
+    px: number[];
+    py: number[];
+    size: number;
     x: number;
     y: number;
+    rot: number;
+    vr: number;
+    vx: number;
+    vy: number;
+    rad: number[]; // per-vertex radius factor -> irregular rocky shape
+}
+
+interface Particle {
+    x: number;
+    y: number;
+    vx: number;
+    vy: number;
+    killTime: number;
+}
+
+interface Player {
+    x: number;
+    y: number;
+    accel: number;
+    maxSpeed: number;
+    lastThrust: number;
+    fuel: number;
+    energy: number;
+    rot: number;
     vx: number;
     vy: number;
     size: number;
+    level: number;
+    score: number;
+    kills: number;
+    invisible: number;
+    lastEnergy: number;
+    killTime: number;
+    x1: number; y1: number; x2: number; y2: number;
+    x3: number; y3: number; x4: number; y4: number;
 }
 
-declare function getLastPos(): LuaMultiReturn<[unknown, unknown]>;
-
+// A faithful TypeScript port of the xS "Game-Asteroids" (X-Lite) game:
+// ail rotates, thr (throttle) thrusts with fuel, the weapon auto-fires, and
+// the stats screen continues with ele up. All sounds come from the xS WAVs.
 class Game {
-    private shipX = 0;
-    private shipY = 0;
-    private shipVx = 0;
-    private shipVy = 0;
-    private shipAngle = -90;
+    private w: number;
+    private h: number;
 
-    private bullets: Bullet[] = [];
-    private rocks: Rock[] = [];
+    private now = 0;
+    private frame = 1;
+    private oldTime = 0;
+    private deltaTime = 1;
 
-    private score = 0;
-    private best = 0;
-    private lives = 3;
-    private wave = 1;
+    private SPLASH = 0;
+    private GAME = 1;
+    private STATS = 2;
+    private state = this.SPLASH;
+    private splashStart = 0;
+    private level = 0;
 
-    private fireCooldownUntil = 0;
-    private invulUntil = 0;
+    private shots: Shot[] = [];
+    private shotInterval = 65; // centiseconds
+    private lastShot = 0;
+    private shotSpeed = 0.9;
 
-    private state = { initial: 0, playing: 1, paused: 2, gameOver: 3 };
-    private phase = this.state.initial;
+    private comets: Comet[] = [];
+    private cometSize = 24; // 2x the original xS size
+    private minCometSize = 6;
+    private cometDots = 7; // more vertices for a rocky look
+    private cometSpeed = 0.1;
 
-    private lastTick = 0;
+    private particles: Particle[] = [];
+
+    private player: Player = {
+        x: 0, y: 0, accel: 0.005, maxSpeed: 0.65, lastThrust: 0,
+        fuel: 100, energy: 100, rot: 0, vx: 0, vy: 0, size: 8,
+        level: 0, score: 0, kills: 0, invisible: 0, lastEnergy: 0, killTime: 0,
+        x1: 0, y1: 0, x2: 0, y2: 0, x3: 0, y3: 0, x4: 0, y4: 0,
+    };
+
     private soundEnabled = true;
+    private white = lcd.RGB(255, 255, 255);
+    private grey = lcd.RGB(120, 120, 120);
 
-    constructor(private w: number, private h: number) {
-        this.resetShip(true);
-        this.lastTick = getTime();
+    constructor(w: number, h: number) {
+        this.w = w;
+        this.h = h;
+        this.player.x = Math.floor(w / 2);
+        this.player.y = Math.floor(h / 2);
+        this.oldTime = getTime();
+        this.playSnd('splash.wav', 700, 60);
     }
 
-    private playSfx(freq: number, duration: number, pause: number = 0) {
+    // ---------- audio ----------
+    // The sound files live in /GAMES/SOUND/<game>/ on the radio; /SOUNDS/<game>/
+    // is a fallback (both verified to play). playFile is silent for missing
+    // files, so only the path that exists produces sound.
+    private playSound(dir: string, file: string) {
         if (!this.soundEnabled) {
             return;
         }
-        (playTone as unknown as (f: number, d: number, p: number) => void)(freq, duration, pause);
+        const tries = [
+            `/GAMES/SOUNDS/${dir}/${file}`,
+            `/SOUNDS/${dir}/${file}`,
+        ];
+        for (let i = 0; i < tries.length; i++) {
+            (playFile as unknown as (p: string) => void)(tries[i]);
+        }
     }
 
-    private clamp(v: number, minV: number, maxV: number): number {
-        return Math.max(minV, Math.min(maxV, v));
+    private playSnd(file: string, freq: number, duration: number) {
+        this.playSound('asteroids', file);
     }
 
-    private wrapX(x: number): number {
-        if (x < 0) {
-            return this.w;
+    // ---------- helpers ----------
+    private newExplosion(x: number, y: number, size: number, steps: number = 20) {
+        for (let i = 0; i < 360; i += steps) {
+            this.particles.push({
+                x: x + Math.floor(Math.random() * size * 2 - size),
+                y: y + Math.floor(Math.random() * size * 2 - size),
+                vx: Math.cos((i * Math.PI) / 180) * (Math.random() * 1 + 1) / 5,
+                vy: Math.sin((i * Math.PI) / 180) * (Math.random() * 1 + 1) / 5,
+                killTime: this.now + 150,
+            });
         }
-        if (x > this.w) {
-            return 0;
+        if (this.particles.length > 140) {
+            this.particles.splice(0, this.particles.length - 140);
         }
-        return x;
     }
 
-    private wrapY(y: number): number {
-        if (y < 0) {
-            return this.h;
+    private newThrust() {
+        for (let i = 0; i < 2; i++) {
+            const r = this.player.rot + 180 + Math.floor(Math.random() * 11 - 5);
+            this.particles.push({
+                x: this.player.x,
+                y: this.player.y,
+                vx: Math.cos((r * Math.PI) / 180) * (Math.random() * 1 + 1) / 5,
+                vy: Math.sin((r * Math.PI) / 180) * (Math.random() * 1 + 1) / 5,
+                killTime: this.now + 50,
+            });
         }
-        if (y > this.h) {
-            return 0;
+        if (this.particles.length > 140) {
+            this.particles.splice(0, this.particles.length - 140);
         }
-        return y;
     }
 
-    private toRad(deg: number): number {
-        return (deg * math.pi) / 180;
-    }
-
-    private rand(min: number, max: number): number {
-        return min + math.random() * (max - min);
-    }
-
-    private rockRadius(size: number): number {
-        if (size == 3) {
-            return 20;
-        }
-        if (size == 2) {
-            return 13;
-        }
-        return 8;
-    }
-
-    private isTouchEvent(event: number): boolean {
-        return event == EVT_TOUCH_FIRST || event == EVT_TOUCH_SLIDE || event == EVT_TOUCH_TAP || event == EVT_TOUCH_BREAK;
-    }
-
-    private readTouchPosition(): { x: number; y: number } | null {
-        if (type(getLastPos as unknown) != 'function') {
-            return null;
-        }
-
-        const [xRaw, yRaw] = getLastPos();
-        if (type(xRaw) == 'number' && type(yRaw) == 'number') {
-            return { x: xRaw as number, y: yRaw as number };
-        }
-
-        if (type(xRaw) == 'table') {
-            const t = xRaw as { x?: unknown; y?: unknown; [k: number]: unknown };
-            const tx = (t.x as number) ?? (t[1] as number);
-            const ty = (t.y as number) ?? (t[2] as number);
-            if (type(tx) == 'number' && type(ty) == 'number') {
-                return { x: tx, y: ty };
+    private updateParticles() {
+        for (let i = this.particles.length - 1; i >= 0; i--) {
+            const p = this.particles[i];
+            p.x += p.vx * this.deltaTime;
+            p.y += p.vy * this.deltaTime;
+            if (p.x < 1 || p.x > this.w - 1 || p.y < 1 || p.y > this.h - 1 || p.killTime <= this.now) {
+                this.particles.splice(i, 1);
             }
         }
-
-        return null;
     }
 
-    private resetShip(clearVelocity: boolean) {
-        this.shipX = this.w / 2;
-        this.shipY = this.h * 0.7;
-        this.shipAngle = -90;
-        if (clearVelocity) {
-            this.shipVx = 0;
-            this.shipVy = 0;
+    private updatePlayer() {
+        const P = this.player;
+        if (P.energy <= 0) {
+            return;
         }
-    }
-
-    private spawnRock(size: number, avoidCenter: boolean) {
-        let x = this.rand(0, this.w);
-        let y = this.rand(0, this.h * 0.55);
-        if (avoidCenter) {
-            let tries = 0;
-            while (tries < 12) {
-                const dx = x - this.w / 2;
-                const dy = y - this.h * 0.7;
-                if (dx * dx + dy * dy > 120 * 120) {
-                    break;
+        // invisibility
+        if (P.invisible > 0 && P.invisible + 200 <= this.now) {
+            P.invisible = 0;
+        }
+        // rotate with ail
+        P.rot = P.rot + (getValue('ail') / 400) * this.deltaTime;
+        // ship vertices (nose at rot, others at +120/+180/+240)
+        P.x1 = P.x + Math.cos(((0 + P.rot) * Math.PI) / 180) * P.size;
+        P.y1 = P.y + Math.sin(((0 + P.rot) * Math.PI) / 180) * P.size;
+        P.x2 = P.x + Math.cos(((120 + P.rot) * Math.PI) / 180) * P.size;
+        P.y2 = P.y + Math.sin(((120 + P.rot) * Math.PI) / 180) * P.size;
+        P.x3 = P.x + Math.cos(((180 + P.rot) * Math.PI) / 180) * P.size * 0.2;
+        P.y3 = P.y + Math.sin(((180 + P.rot) * Math.PI) / 180) * P.size * 0.2;
+        P.x4 = P.x + Math.cos(((240 + P.rot) * Math.PI) / 180) * P.size;
+        P.y4 = P.y + Math.sin(((240 + P.rot) * Math.PI) / 180) * P.size;
+        // thrust with the throttle channel
+        const thr = (getValue('thr') + 1024) / 2048;
+        const accel = P.accel * thr;
+        if (accel > 0 && P.fuel > 0) {
+            this.newThrust();
+            if (P.lastThrust + 50 <= this.now) {
+                P.lastThrust = this.now;
+                P.fuel = P.fuel - thr * 3;
+                if (P.fuel <= 0) {
+                    P.fuel = 0;
+                    this.playSnd('empty.wav', 300, 60);
+                } else {
+                    this.playSnd('thrust.wav', 160, 90);
                 }
-                x = this.rand(0, this.w);
-                y = this.rand(0, this.h * 0.55);
-                tries++;
             }
+            P.vx = P.vx + Math.cos((P.rot * Math.PI) / 180) * accel * this.deltaTime;
+            P.vy = P.vy + Math.sin((P.rot * Math.PI) / 180) * accel * this.deltaTime;
         }
-
-        const speed = this.rand(0.45, 1.25);
-        const a = this.toRad(this.rand(0, 360));
-        this.rocks.push({ x: x, y: y, vx: math.cos(a) * speed, vy: math.sin(a) * speed, size: size });
-    }
-
-    private startWave() {
-        const count = 4 + this.wave;
-        for (let i = 0; i < count; i++) {
-            this.spawnRock(3, true);
+        // max speed
+        const totalvel = Math.sqrt(P.vx * P.vx + P.vy * P.vy);
+        if (totalvel >= P.maxSpeed) {
+            P.vx = P.vx * P.maxSpeed / totalvel;
+            P.vy = P.vy * P.maxSpeed / totalvel;
         }
-    }
-
-    private restart() {
-        this.score = 0;
-        this.lives = 3;
-        this.wave = 1;
-        this.bullets = [];
-        this.rocks = [];
-        this.resetShip(true);
-        this.startWave();
-        this.fireCooldownUntil = 0;
-        this.invulUntil = getTime() + 80;
-        this.phase = this.state.playing;
-        this.lastTick = getTime();
-        this.playSfx(860, 90, 0);
-    }
-
-    private shoot() {
-        if (this.phase != this.state.playing) {
-            return;
+        // move + wrap
+        P.x = P.x + P.vx * this.deltaTime;
+        P.y = P.y + P.vy * this.deltaTime;
+        if (P.x < 0) {
+            P.x = this.w;
+        } else if (P.x > this.w) {
+            P.x = 0;
         }
-        const now = getTime();
-        if (now < this.fireCooldownUntil) {
-            return;
-        }
-
-        const a = this.toRad(this.shipAngle);
-        const tipX = this.shipX + math.cos(a) * 12;
-        const tipY = this.shipY + math.sin(a) * 12;
-        const bulletSpeed = 4.9;
-
-        this.bullets.push({
-            x: tipX,
-            y: tipY,
-            vx: math.cos(a) * bulletSpeed + this.shipVx,
-            vy: math.sin(a) * bulletSpeed + this.shipVy,
-            life: 95,
-        });
-
-        this.fireCooldownUntil = now + 5;
-        this.playSfx(920, 18, 0);
-    }
-
-    private controlShipFromStick(dt: number) {
-        const turn = getValue('ail') / 1024;
-        const thrustAxis = -getValue('ele') / 1024;
-
-        this.shipAngle += turn * 4.2 * dt;
-
-        if (thrustAxis > 0.18) {
-            const force = 0.12 * thrustAxis;
-            const a = this.toRad(this.shipAngle);
-            this.shipVx += math.cos(a) * force * dt;
-            this.shipVy += math.sin(a) * force * dt;
+        if (P.y < 0) {
+            P.y = this.h;
+        } else if (P.y > this.h) {
+            P.y = 0;
         }
     }
 
-    private controlShipFromTouch(event: number, dt: number) {
-        if (!this.isTouchEvent(event)) {
-            return;
+    private updateShots() {
+        const P = this.player;
+        // auto-fire
+        if (P.energy > 0 && this.lastShot + this.shotInterval <= this.now) {
+            this.lastShot = this.now;
+            this.playSnd('shot.wav', 1400, 20);
+            this.shots.push({
+                x: P.x1,
+                y: P.y1,
+                vx: Math.cos((P.rot * Math.PI) / 180) * this.shotSpeed,
+                vy: Math.sin((P.rot * Math.PI) / 180) * this.shotSpeed,
+            });
         }
-
-        if (event == EVT_TOUCH_TAP) {
-            if (this.phase == this.state.initial || this.phase == this.state.gameOver) {
-                this.restart();
-                return;
-            }
-            this.shoot();
-            return;
-        }
-
-        const p = this.readTouchPosition();
-        if (p == null) {
-            return;
-        }
-
-        if (p.x < this.w * 0.33) {
-            this.shipAngle -= 5.0 * dt;
-        } else if (p.x > this.w * 0.67) {
-            this.shipAngle += 5.0 * dt;
-        } else {
-            const a = this.toRad(this.shipAngle);
-            this.shipVx += math.cos(a) * 0.11 * dt;
-            this.shipVy += math.sin(a) * 0.11 * dt;
-        }
-    }
-
-    private updateShip(dt: number) {
-        this.shipVx = this.clamp(this.shipVx, -3.2, 3.2);
-        this.shipVy = this.clamp(this.shipVy, -3.2, 3.2);
-
-        this.shipX += this.shipVx * dt;
-        this.shipY += this.shipVy * dt;
-
-        this.shipVx *= 0.992;
-        this.shipVy *= 0.992;
-
-        this.shipX = this.wrapX(this.shipX);
-        this.shipY = this.wrapY(this.shipY);
-    }
-
-    private updateBullets(dt: number) {
-        let i = 0;
-        while (i < this.bullets.length) {
-            const b = this.bullets[i];
-            b.x = this.wrapX(b.x + b.vx * dt);
-            b.y = this.wrapY(b.y + b.vy * dt);
-            b.life -= dt;
-
-            if (b.life <= 0) {
-                this.bullets.splice(i, 1);
-            } else {
-                i++;
+        // move shots
+        for (let i = this.shots.length - 1; i >= 0; i--) {
+            const s = this.shots[i];
+            s.x += s.vx * this.deltaTime;
+            s.y += s.vy * this.deltaTime;
+            if (s.x < 2 || s.x > this.w - 2 || s.y < 2 || s.y > this.h - 2) {
+                this.shots.splice(i, 1);
             }
         }
     }
 
-    private updateRocks(dt: number) {
-        for (let i = 0; i < this.rocks.length; i++) {
-            const r = this.rocks[i];
-            r.x = this.wrapX(r.x + r.vx * dt);
-            r.y = this.wrapY(r.y + r.vy * dt);
+    private newComet(x?: number, y?: number, vx?: number, vy?: number, size?: number) {
+        const rot = Math.floor(Math.random() * 360) + 1;
+        const rad: number[] = [];
+        for (let i = 0; i < this.cometDots; i++) {
+            rad.push(0.72 + Math.random() * 0.56); // 0.72 .. 1.28 irregularity
         }
+        const c: Comet = {
+            px: [],
+            py: [],
+            rad: rad,
+            size: size != null ? size : this.cometSize,
+            x: x != null ? x : this.cometSize,
+            y: y != null ? y : Math.floor(Math.random() * (this.h - this.cometSize * 2)) + this.cometSize,
+            rot: rot,
+            vr: Math.random() * 2 / 5,
+            vx: vx != null ? vx : Math.cos((rot * Math.PI) / 180) * this.cometSpeed,
+            vy: vy != null ? vy : Math.sin((rot * Math.PI) / 180) * this.cometSpeed,
+        };
+        this.comets.push(c);
     }
 
-    private splitRock(index: number) {
-        const r = this.rocks[index];
-        const size = r.size;
-        this.rocks.splice(index, 1);
-
-        if (size > 1) {
-            for (let i = 0; i < 2; i++) {
-                const a = this.toRad(this.rand(0, 360));
-                const s = this.rand(0.9, 1.8) * (size == 3 ? 1.0 : 1.18);
-                this.rocks.push({
-                    x: r.x,
-                    y: r.y,
-                    vx: math.cos(a) * s,
-                    vy: math.sin(a) * s,
-                    size: size - 1,
-                });
+    private updateComets() {
+        const P = this.player;
+        for (let i = this.comets.length - 1; i >= 0; i--) {
+            const C = this.comets[i];
+            C.x += C.vx * this.deltaTime;
+            C.y += C.vy * this.deltaTime;
+            C.rot += C.vr * this.deltaTime;
+            if (C.x < 0) {
+                C.x = this.w;
+            } else if (C.x > this.w) {
+                C.x = 0;
             }
-        }
-
-        const add = size == 3 ? 20 : size == 2 ? 35 : 50;
-        this.score += add;
-        this.playSfx(540 + size * 120, 30, 0);
-    }
-
-    private dist2(ax: number, ay: number, bx: number, by: number): number {
-        const dx = ax - bx;
-        const dy = ay - by;
-        return dx * dx + dy * dy;
-    }
-
-    private handleBulletRockCollisions() {
-        let bi = 0;
-        while (bi < this.bullets.length) {
-            const b = this.bullets[bi];
+            if (C.y < 0) {
+                C.y = this.h;
+            } else if (C.y > this.h) {
+                C.y = 0;
+            }
+            // hit by a shot?
             let hit = false;
-
-            for (let ri = 0; ri < this.rocks.length; ri++) {
-                const r = this.rocks[ri];
-                const rr = this.rockRadius(r.size);
-                if (this.dist2(b.x, b.y, r.x, r.y) <= rr * rr) {
-                    this.bullets.splice(bi, 1);
-                    this.splitRock(ri);
+            for (let j = this.shots.length - 1; j >= 0; j--) {
+                const s = this.shots[j];
+                if (s != null && this.pointInsideCircle(s.x, s.y, C.x, C.y, C.size)) {
+                    this.playSnd('explos.wav', 90, 80);
+                    this.shots.splice(j, 1);
+                    this.comets.splice(i, 1);
+                    P.score += 20;
+                    this.newExplosion(C.x, C.y, C.size);
+                    if (C.size > this.minCometSize) {
+                        this.newComet(C.x + C.vx, C.y + C.vy, C.vx, C.vy, C.size / 2);
+                        this.newComet(C.x - C.vx, C.y - C.vy, -C.vx, -C.vy, C.size / 2);
+                    } else {
+                        P.kills++;
+                    }
                     hit = true;
                     break;
                 }
             }
-
-            if (!hit) {
-                bi++;
+            if (hit) {
+                continue;
             }
-        }
-    }
-
-    private handleShipRockCollision(now: number) {
-        if (now < this.invulUntil) {
-            return;
-        }
-
-        for (let i = 0; i < this.rocks.length; i++) {
-            const r = this.rocks[i];
-            const rr = this.rockRadius(r.size) + 7;
-            if (this.dist2(this.shipX, this.shipY, r.x, r.y) <= rr * rr) {
-                this.lives -= 1;
-                this.playSfx(170, 240, 0);
-                if (this.lives <= 0) {
-                    this.best = Math.max(this.best, this.score);
-                    this.phase = this.state.gameOver;
-                    return;
+            // hits the player?
+            if (
+                this.comets[i] != null &&
+                P.energy > 0 &&
+                P.invisible == 0 &&
+                this.circlesIntersect(P.x, P.y, P.size, C.x, C.y, C.size)
+            ) {
+                P.energy -= 20;
+                P.lastEnergy = this.now;
+                if (P.energy <= 0) {
+                    this.playSnd('gover.wav', 262, 200);
+                    P.energy = 0;
+                    P.killTime = this.now;
+                    this.newExplosion(P.x, P.y, P.size, 5);
+                } else {
+                    this.playSnd('damage.wav', 200, 100);
+                    P.invisible = this.now;
+                    let vx = P.vx;
+                    let vy = P.vy;
+                    if (vx == 0 && vy == 0) {
+                        vx = -C.vx;
+                        vy = -C.vy;
+                    }
+                    P.vx = C.vx * 1.3;
+                    P.vy = C.vy * 1.3;
+                    C.vx = vx * 1.3;
+                    C.vy = vy * 1.3;
+                    this.newExplosion(P.x, P.y, P.size);
                 }
-
-                this.resetShip(true);
-                this.invulUntil = now + 90;
-                return;
             }
         }
     }
 
-    private onEvent(event: number) {
-        if (event == EVT_SYS_BREAK) {
-            this.restart();
-            return;
-        }
+    private pointInsideCircle(x: number, y: number, a: number, b: number, r: number): boolean {
+        return (x - a) * (x - a) + (y - b) * (y - b) < r * r;
+    }
 
-        if (event == EVT_MODEL_FIRST) {
-            if (this.phase == this.state.playing) {
-                this.phase = this.state.paused;
-                this.playSfx(420, 60, 0);
-            } else if (this.phase == this.state.paused) {
-                this.phase = this.state.playing;
-                this.playSfx(820, 40, 0);
-            }
-            return;
-        }
+    private circlesIntersect(x1: number, y1: number, r1: number, x2: number, y2: number, r2: number): boolean {
+        const distSq = (x1 - x2) * (x1 - x2) + (y1 - y2) * (y1 - y2);
+        const radSumSq = (r1 + r2) * (r1 + r2);
+        return distSq <= radSumSq;
+    }
 
-        if (event == EVT_TELEM_FIRST || event == EVT_ENTER_BREAK || event == EVT_VIRTUAL_ENTER) {
-            if (this.phase == this.state.initial || this.phase == this.state.gameOver) {
-                this.restart();
-            } else {
-                this.shoot();
-            }
+    private newLevel() {
+        const P = this.player;
+        this.comets = [];
+        this.shots = [];
+        this.particles = [];
+        P.x = Math.floor(this.w / 2);
+        P.y = Math.floor(this.h / 2);
+        P.invisible = this.now;
+        P.lastThrust = this.now;
+        P.fuel = 100;
+        P.energy = P.energy + 40;
+        if (P.energy > 100) {
+            P.energy = 100;
+        }
+        P.rot = -90;
+        P.vx = 0;
+        P.vy = 0;
+        P.level++;
+        this.newComet(0);
+        this.newComet(this.w);
+        if (P.level > 2) {
+            this.newComet(0);
+        }
+        if (P.level > 4) {
+            this.newComet(this.w);
+        }
+        this.playSnd('ready.wav', 523, 40);
+        this.state = this.GAME;
+    }
+
+    private update() {
+        this.updatePlayer();
+        this.updateShots();
+        this.updateComets();
+        this.updateParticles();
+        if (this.comets.length < 1 && this.player.energy > 0) {
+            this.newLevel();
         }
     }
 
-    private update(event: number) {
-        if (this.phase != this.state.playing) {
-            return;
-        }
-
-        const now = getTime();
-        let dt = now - this.lastTick;
-        if (dt <= 0) {
-            dt = 1;
-        }
-        if (dt > 4) {
-            dt = 4;
-        }
-
-        this.controlShipFromStick(dt);
-        this.controlShipFromTouch(event, dt);
-        this.updateShip(dt);
-        this.updateBullets(dt);
-        this.updateRocks(dt);
-        this.handleBulletRockCollisions();
-        this.handleShipRockCollision(now);
-
-        if (this.rocks.length == 0) {
-            this.wave += 1;
-            this.startWave();
-            this.playSfx(980, 80, 0);
-        }
-
-        this.lastTick = now;
-    }
-
-    private drawShip() {
-        if (this.phase == this.state.initial) {
-            return;
-        }
-
-        const now = getTime();
-        if (now < this.invulUntil && (math.floor(now / 4) % 2 == 0)) {
-            return;
-        }
-
-        const a = this.toRad(this.shipAngle);
-        const n0 = this.toRad(this.shipAngle + 135);
-        const n1 = this.toRad(this.shipAngle - 135);
-
-        const noseX = this.shipX + math.cos(a) * 11;
-        const noseY = this.shipY + math.sin(a) * 11;
-        const lX = this.shipX + math.cos(n0) * 9;
-        const lY = this.shipY + math.sin(n0) * 9;
-        const rX = this.shipX + math.cos(n1) * 9;
-        const rY = this.shipY + math.sin(n1) * 9;
-
-        lcd.drawLine(noseX, noseY, lX, lY, SOLID, COLOR_THEME_SECONDARY2);
-        lcd.drawLine(lX, lY, rX, rY, SOLID, COLOR_THEME_SECONDARY2);
-        lcd.drawLine(rX, rY, noseX, noseY, SOLID, COLOR_THEME_SECONDARY2);
-    }
-
-    private drawBullets() {
-        for (let i = 0; i < this.bullets.length; i++) {
-            const b = this.bullets[i];
-            lcd.drawFilledRectangle(b.x - 1, b.y - 1, 3, 3, COLOR_THEME_WARNING);
-        }
-    }
-
-    private drawRocks() {
-        for (let i = 0; i < this.rocks.length; i++) {
-            const r = this.rocks[i];
-            const rad = this.rockRadius(r.size);
-            lcd.drawRectangle(r.x - rad, r.y - rad, rad * 2, rad * 2, COLOR_THEME_PRIMARY1);
-            lcd.drawLine(r.x - rad, r.y, r.x + rad, r.y, DOTTED, COLOR_THEME_PRIMARY1);
-            lcd.drawLine(r.x, r.y - rad, r.x, r.y + rad, DOTTED, COLOR_THEME_PRIMARY1);
-        }
-    }
-
-    private drawHud() {
-        lcd.drawText(4, 3, `S:${this.score}`, SMLSIZE | COLOR_THEME_PRIMARY1);
-        lcd.drawText(56, 3, `L:${this.lives}`, SMLSIZE | COLOR_THEME_PRIMARY1);
-        lcd.drawText(100, 3, `W:${this.wave}`, SMLSIZE | COLOR_THEME_PRIMARY1);
-        lcd.drawText(this.w - 4, 3, `Best:${this.best}`, SMLSIZE | RIGHT | COLOR_THEME_PRIMARY1);
-    }
-
-    private drawOverlay(text: string) {
-        lcd.drawFilledRectangle(20, 20, this.w - 40, this.h - 40, COLOR_THEME_SECONDARY1, 1);
-        lcd.drawRectangle(20, 20, this.w - 40, this.h - 40, COLOR_THEME_PRIMARY1, 2);
-        lcd.drawText(this.w / 2, this.h / 2, text, COLOR_THEME_PRIMARY1 | CENTER | VCENTER | DBLSIZE);
-    }
-
+    // ---------- draw ----------
     private draw() {
-        lcd.clear(COLOR_THEME_PRIMARY2);
+        const P = this.player;
+        lcd.clear(lcd.RGB(0, 0, 0));
 
-        // stars
-        for (let i = 0; i < 44; i++) {
-            const x = (i * 71 + this.wave * 13) % this.w;
-            const y = (i * 47 + this.wave * 17) % this.h;
-            lcd.drawPoint(x, y, COLOR_THEME_SECONDARY3);
+        // ship
+        if (P.energy > 0) {
+            if (P.invisible == 0 || this.frame % 2 == 0) {
+                lcd.drawLine(P.x1, P.y1, P.x2, P.y2, SOLID, this.white);
+                lcd.drawLine(P.x2, P.y2, P.x3, P.y3, SOLID, this.white);
+                lcd.drawLine(P.x3, P.y3, P.x4, P.y4, SOLID, this.white);
+                lcd.drawLine(P.x4, P.y4, P.x1, P.y1, SOLID, this.white);
+            }
         }
 
-        this.drawRocks();
-        this.drawBullets();
-        this.drawShip();
-        this.drawHud();
+        // comets (irregular rotating polygons)
+        const step = Math.floor(360 / this.cometDots);
+        for (let i = 0; i < this.comets.length; i++) {
+            const C = this.comets[i];
+            let n = 0;
+            for (let j = 1; j <= 360; j += step) {
+                const f = C.rad[n % C.rad.length];
+                C.px[n] = C.x + Math.cos(((C.rot + j) * Math.PI) / 180) * C.size * f;
+                C.py[n] = C.y + Math.sin(((C.rot + j) * Math.PI) / 180) * C.size * f;
+                n++;
+            }
+            for (let j = 0; j < C.px.length - 1; j++) {
+                lcd.drawLine(C.px[j], C.py[j], C.px[j + 1], C.py[j + 1], SOLID, this.white);
+            }
+            if (C.px.length > 1) {
+                lcd.drawLine(C.px[C.px.length - 1], C.py[C.px.length - 1], C.px[0], C.py[0], SOLID, this.white);
+            }
+        }
 
-        if (this.phase == this.state.initial) {
-            this.drawOverlay('ASTEROIDS\nPress SYS');
-        } else if (this.phase == this.state.paused) {
-            this.drawOverlay('PAUSED');
-        } else if (this.phase == this.state.gameOver) {
-            this.drawOverlay('GAME OVER\nPress SYS');
+        // shots
+        for (let i = 0; i < this.shots.length; i++) {
+            const s = this.shots[i];
+            if (s != null) {
+                lcd.drawFilledRectangle(s.x - 1, s.y - 1, 3, 3, this.white);
+            }
+        }
+
+        // particles
+        for (let i = 0; i < this.particles.length; i++) {
+            const p = this.particles[i];
+            if (p != null) {
+                lcd.drawPoint(p.x, p.y, this.white);
+            }
+        }
+
+        // fuel bar (left)
+        lcd.drawRectangle(1, 1, 3, this.h - 2, this.white);
+        if (P.fuel > 0) {
+            lcd.drawLine(2, this.h - 2 - ((this.h - 4) / 100) * P.fuel, 2, this.h - 3, SOLID, this.white);
+        }
+        lcd.drawText(5, 1, 'F', SMLSIZE | this.white);
+
+        // energy bar (right)
+        if (P.lastEnergy < this.now - 150 || this.frame % 2 == 0) {
+            lcd.drawRectangle(this.w - 4, 1, 3, this.h - 2, this.white);
+            if (P.energy > 0) {
+                lcd.drawLine(this.w - 3, this.h - 2 - ((this.h - 4) / 100) * P.energy, this.w - 3, this.h - 3, SOLID, this.white);
+            }
+        }
+        lcd.drawText(this.w - 9, 1, 'E', SMLSIZE | this.white);
+
+        // score / level / kills
+        lcd.drawText(10, 1, `S:${P.score}`, SMLSIZE | this.grey);
+        lcd.drawText(60, 1, `L:${P.level}`, SMLSIZE | this.grey);
+        lcd.drawText(100, 1, `K:${P.kills}`, SMLSIZE | this.grey);
+
+        // game over banner
+        if (P.energy <= 0) {
+            lcd.drawText(26, this.h / 2 - 7, 'GAME OVER', MIDSIZE | this.white);
+            if (P.killTime < this.now - 500) {
+                this.playSnd('stats.wav', 440, 60);
+                this.state = this.STATS;
+            }
+        }
+    }
+
+    private drawStats() {
+        const P = this.player;
+        lcd.clear(lcd.RGB(0, 0, 0));
+        lcd.drawText(7, 2, '    GAME OVER    ', MIDSIZE + INVERS + this.white);
+        lcd.drawText(28, 20, 'SCORE:', SMLSIZE | this.white);
+        lcd.drawText(28, 30, 'STAGE:', SMLSIZE | this.white);
+        lcd.drawText(28, 40, 'KILLS:', SMLSIZE | this.white);
+        lcd.drawText(70, 20, `${P.score}`, SMLSIZE | this.white);
+        lcd.drawText(70, 30, `${P.level}`, SMLSIZE | this.white);
+        lcd.drawText(70, 40, `${P.kills}`, SMLSIZE | this.white);
+        lcd.drawText(6, this.h - 9, '   -STICK UP TO CONTINUE-   ', SMLSIZE | this.white);
+        lcd.drawRectangle(5, 1, this.w - 10, this.h - 2, this.white);
+        if (getValue('ele') > 500) {
+            this.playSnd('splash.wav', 550, 60);
+            P.level = 0;
+            P.score = 0;
+            P.kills = 0;
+            this.splashStart = this.now;
+            this.state = this.SPLASH;
+        }
+    }
+
+    private drawSplash() {
+        lcd.clear(lcd.RGB(0, 0, 0));
+        lcd.drawText(this.w / 2, this.h / 2 - 20, 'ASTEROIDS', DBLSIZE | CENTER | this.white);
+        lcd.drawText(this.w / 2, this.h / 2 + 10, 'ail: turn   thr: thrust', SMLSIZE | CENTER | this.grey);
+        lcd.drawText(this.w / 2, this.h / 2 + 26, 'weapon fires automatically', SMLSIZE | CENTER | this.grey);
+        if (this.now > this.splashStart + 300) {
+            this.newLevel();
         }
     }
 
     public run(event: number, touchState: any): number {
-        if (event != null) {
-            this.onEvent(event);
+        if (event == EVT_EXIT_BREAK) {
+            return 2;
+        }
+        this.frame++;
+        this.now = getTime();
+        this.deltaTime = this.now - this.oldTime;
+        if (this.deltaTime <= 0 || this.deltaTime > 60) {
+            this.deltaTime = 1;
         }
 
-        this.update(event);
-        this.draw();
+        if (this.state == this.SPLASH) {
+            this.drawSplash();
+        } else if (this.state == this.GAME) {
+            this.update();
+            this.draw();
+        } else {
+            this.drawStats();
+        }
+
+        this.oldTime = this.now;
         return 0;
     }
 }

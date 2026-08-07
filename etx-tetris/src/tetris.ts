@@ -449,6 +449,8 @@ class Game {
     private message: Message;
     private timerToken: number = 0;
     private soundEnabled = true;
+    private stickMoveCd = 0;
+    private stickRotCd = 0;
     public w: number;
     public h: number;
 
@@ -456,7 +458,7 @@ class Game {
         this.w = w;
         this.h = h;
         this.message = new Message(this);
-        this.grid = new Grid(20, 10, lcd.RGB(128, 128, 128), w, h);
+        this.grid = new Grid(16, 10, lcd.RGB(128, 128, 128), w, h); // 20px cells
         this.speed = 1000;
         this.message.setMessage("TETRIS\nPress SYS to start");
         this.timerToken = getTime();
@@ -468,6 +470,37 @@ class Game {
         }
         // EdgeTX declarations are untyped for playTone args in this project.
         (playTone as unknown as (f: number, d: number, p: number) => void)(freq, duration, pause);
+    }
+
+    // The sound files live in /GAMES/SOUND/<game>/ on the radio; /SOUNDS/<game>/
+    // is a fallback (both verified to play). playFile is silent for missing
+    // files, so only the path that exists produces sound.
+    private playSound(dir: string, file: string) {
+        if (!this.soundEnabled) {
+            return;
+        }
+        const tries = [
+            `/GAMES/SOUNDS/${dir}/${file}`,
+            `/SOUNDS/${dir}/${file}`,
+        ];
+        for (let i = 0; i < tries.length; i++) {
+            (playFile as unknown as (p: string) => void)(tries[i]);
+        }
+    }
+
+    private tryPlayFile(file: string): boolean {
+        this.playSound('tetris', file);
+        return true;
+    }
+
+    private playSfxFile(file: string, freq: number, duration: number) {
+        if (!this.soundEnabled) {
+            return;
+        }
+        if (this.tryPlayFile(file)) {
+            return;
+        }
+        (playTone as unknown as (f: number, d: number, p: number) => void)(freq, duration, 0);
     }
 
     private draw() {
@@ -502,7 +535,7 @@ class Game {
         this.speedScale = 100;
         this.speed = 1000;
         this.phase = Game.gameState.playing;
-        this.playSfx(900, 90, 0);
+        this.playSfxFile('ready.wav', 900, 90);
         this.incrementLevel(); // will start the game timer & update the labels
     }
 
@@ -535,6 +568,7 @@ class Game {
             let points = this.currentShape.drop();
             if (this.grid.isPosValid(points)) {
                 this.currentShape.setPos(points);
+                this.playSfxFile('shift.wav', 520, 15); // like the xS X-Tris
             }
             else {
                 this.shapeFinished();
@@ -574,10 +608,10 @@ class Game {
                     if (this.grid.isPosValid(points)) {
                         this.currentShape.setPos(points);
                         if (event == EVT_TELEM_FIRST) {
-                            this.playSfx(760, 20, 0);
+                            this.playSfxFile('rot.wav', 760, 20);
                         }
                         else {
-                            this.playSfx(620, 15, 0);
+                            this.playSfxFile('move.wav', 620, 15);
                         }
                     }
                     break;
@@ -616,23 +650,76 @@ class Game {
         this.message.setMessage(message);
     }
 
+    // stick-channel controls (like the xS X-Tris): ail = left/right,
+    // ele down = soft drop, ele up / rud = rotate
+    private stickControl() {
+        if (this.phase != Game.gameState.playing) {
+            return;
+        }
+        const now = getTime();
+        if (now - this.stickMoveCd >= 12) {
+            this.stickMoveCd = now;
+            const ail = getValue('ail');
+            const ele = getValue('ele');
+            let points: Point[] | null = null;
+            if (ail > 300) {
+                points = this.currentShape.moveRight();
+            }
+            else if (ail < -300) {
+                points = this.currentShape.moveLeft();
+            }
+            else if (ele < -300) {
+                points = this.currentShape.drop();
+            }
+            if (points != null && this.grid.isPosValid(points)) {
+                this.currentShape.setPos(points);
+                this.playSfxFile('move.wav', 620, 12);
+            }
+        }
+        if (now - this.stickRotCd >= 14) {
+            this.stickRotCd = now;
+            const rud = getValue('rud');
+            const ele = getValue('ele');
+            if (rud > 300 || ele > 300) {
+                const points = this.currentShape.rotate(true);
+                if (this.grid.isPosValid(points)) {
+                    this.currentShape.setPos(points);
+                    this.playSfxFile('rot.wav', 760, 18);
+                }
+            }
+            else if (rud < -300) {
+                const points = this.currentShape.rotate(false);
+                if (this.grid.isPosValid(points)) {
+                    this.currentShape.setPos(points);
+                    this.playSfxFile('rot.wav', 760, 18);
+                }
+            }
+        }
+    }
+
     private incrementLevel() {
         this.level++;
         this.updateDropSpeed();
         if (this.level > 0) {
-            this.playSfx(1000, 70, 0);
+            this.playSfxFile('levelup.wav', 1000, 70);
         }
     }
 
     private shapeFinished() {
         if (this.grid.addShape(this.currentShape)) {
             this.grid.draw(this.currentShape);
+            this.playSfxFile('set.wav', 300, 20);
             let completed = this.grid.checkRows(this.currentShape); // and erase them
             if (completed > 0) {
-                this.playSfx(500 + completed * 120, 90, 0);
-            }
-            else {
-                this.playSfx(300, 25, 0);
+                if (completed >= 3) {
+                    this.playSfxFile('filled3.wav', 740, 90);
+                }
+                else if (completed == 2) {
+                    this.playSfxFile('filled2.wav', 620, 90);
+                }
+                else {
+                    this.playSfxFile('filled1.wav', 500, 90);
+                }
             }
             this.rowsCompleted += completed;
             this.score += (completed * (this.level + 1) * 10);
@@ -646,7 +733,7 @@ class Game {
         else {
             // game over!
             this.phase = Game.gameState.gameOver;
-            this.playSfx(160, 250, 0);
+            this.playSfxFile('gover.wav', 160, 250);
             this.showMessage("GAME OVER\nPress SYS to Restart");
         }
     }
@@ -687,6 +774,7 @@ class Game {
             this.gameTimer();
             this.timerToken = t;
         }
+        this.stickControl();
         this.draw();
 
         this.keyHandler(event);

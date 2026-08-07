@@ -67,26 +67,23 @@ function playSfx(freq: number, duration: number, pause: number = 0) {
     }
 }
 
-// play a WAV from the SOUNDS folder; fall back to a tone if not found
-function playSfxFile(file: string, freq: number, duration: number) {
+// The sound files live in /GAMES/SOUND/<game>/ on the radio; /SOUNDS/<game>/
+// is a fallback (both verified to play). playFile is silent for missing files.
+function playSound(dir: string, file: string) {
     if (!settings.sound) {
         return;
     }
     const tries = [
-        `./SOUNDS/galuaxian/${file}`,
-        `/SOUNDS/galuaxian/${file}`,
-        `./SOUNDS/en/${file}`,
-        `./SOUNDS/${file}`,
-        `/SOUNDS/en/${file}`,
-        `/SOUNDS/${file}`,
+        `/GAMES/SOUNDS/${dir}/${file}`,
+        `/SOUNDS/${dir}/${file}`,
     ];
     for (let i = 0; i < tries.length; i++) {
-        const ok = (playFile as unknown as (p: string) => boolean)(tries[i]);
-        if (ok) {
-            return;
-        }
+        (playFile as unknown as (p: string) => void)(tries[i]);
     }
-    (playTone as unknown as (f: number, d: number, p: number) => void)(freq, duration, 0);
+}
+
+function playSfxFile(file: string, freq: number, duration: number) {
+    playSound('galuaxian', file);
 }
 
 // Returns color flag

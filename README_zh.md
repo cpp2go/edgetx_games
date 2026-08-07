@@ -10,7 +10,7 @@
 
 [📦 下载 GAMES.zip（v1.0）](https://github.com/cpp2go/edgetx_games/releases/download/v1.0/GAMES.zip)
 
-解压后按下方安装说明，把 `SCRIPTS/`、`IMAGES/`、`SOUNDS/` 拷贝到遥控器 SD 卡即可。
+解压后，把每个游戏文件夹拷贝到遥控器 SD 卡的 `/GAMES/<游戏名>/` 即可（见下方安装说明）。
 
 ## 游戏列表
 
@@ -29,6 +29,7 @@
 | `etx-snake` | **Snake 贪吃蛇** | 经典贪吃蛇 |
 | `etx-sudoku` | **Sudoku 数独** | 经典 9×9 数独，3 种难度，支持触屏数字键盘和提示 |
 | `etx-tetris` | **Tetris 俄罗斯方块** | 经典俄罗斯方块 |
+| `etx-vampire` | **Vampire 吸血鬼幸存者** | 吸血鬼幸存者风格：自动攻击、无尽波次、升级选强化 |
 
 ## 支持的遥控器
 
@@ -42,31 +43,33 @@
 
 ## 安装
 
-每个游戏都可以作为主屏**全屏 Widget** 运行，或从 SYS 菜单作为**独立脚本**运行。
+每个游戏部署在 SD 卡 `/GAMES/<游戏名>/` 自己的文件夹里，可以作为主屏**全屏 Widget** 运行，或从 SYS 菜单作为**独立脚本**运行。
 
 ### 作为 Widget 运行
 
-拷贝三个文件到遥控器 SD 卡：
+把游戏文件夹拷贝到遥控器 SD 卡：
 
 | SD 卡路径 | 源文件 |
 |---|---|
-| `/SCRIPTS/GAMES/IMAGES/*.png` | `etx-<name>/_site/IMAGES/<name>.lua` |
-| `/SCRIPTS/GAMES/SCRIPTS/*.lua` | `etx-<name>/_site/SCRIPTS/<name>.lua` |
-| `/SCRIPTS/GAMES/<Name>.lua` | `etx-<name>/_site/SCRIPTS/<Name>.lua` |
+| `/GAMES/<游戏名>/<游戏名>.lua` | `etx-<name>/_site/<name>.lua` |
+| `/GAMES/<游戏名>/SCRIPTS/<Name>.lua` | `etx-<name>/_site/SCRIPTS/<Name>.lua` |
+| `/GAMES/<游戏名>/IMAGES/*.png` | `etx-<name>/_site/IMAGES/*.png` |
+| `/GAMES/SOUNDS/<游戏名>/*.wav` | `etx-<name>/_site/SOUNDS/<name>/*.wav` |
 
-Widget 在运行时加载独立脚本，所以**两个文件都需要**。
+Widget 在运行时加载独立脚本，所以**两个 Lua 文件都需要**。
 
 例如 Breakout（示例）:
 
 ```
 SD 卡:
-  SCRIPTS/
-    GAMES/
+  GAMES/
+    breakout/
+      breakout.lua          ← _site/breakout.lua
       SCRIPTS/
-        main.lua          ← _site/breakout.lua
-  SCRIPTS/
-    GAMES/
-      Breakout.lua      ← _site/SCRIPTS/Breakout.lua
+        Breakout.lua        ← _site/SCRIPTS/Breakout.lua
+      IMAGES/               ← _site/IMAGES/ (如有)
+    SOUNDS/
+      breakout/             ← _site/SOUNDS/breakout/
 ```
 
 然后在遥控器上：长按主屏 → **Edit** → **Add Widget** → 选择游戏。
@@ -77,7 +80,7 @@ SD 卡:
 
 | SD 卡路径 | 源文件 |
 |---|---|
-| `/SCRIPTS/GAMES/<Name>.lua` | `etx-<name>/_site/SCRIPTS/<Name>.lua` |
+| `/GAMES/<游戏名>/SCRIPTS/<Name>.lua` | `etx-<name>/_site/SCRIPTS/<Name>.lua` |
 
 然后：**SYS** → **Scripts** → 选择游戏。
 

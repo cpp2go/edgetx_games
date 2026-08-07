@@ -45,6 +45,7 @@ $GameNames = @{
     "snake"     = "Snake"
     "sudoku"    = "Sudoku"
     "tetris"    = "Tetris"
+    "vampire"   = "Vampire"
 }
 
 # 清空并重建输出目录
@@ -139,7 +140,7 @@ foreach ($game in $games) {
         if (Test-Path $d) { $sounds += Get-ChildItem $d -Filter *.wav -File }
     }
     if ($sounds.Count -gt 0) {
-        # merged: 放 SOUNDS\<slug>\ 避免同名 wav 互相覆盖; separate: SOUNDS\ 平铺
+        # merged: 放 SOUNDS\<slug>\ 子目录, 避免同名 wav 互相覆盖; separate: SOUNDS\ 平铺
         $destSnd = if ($Layout -eq "merged") { Join-Path $destSounds $slug } else { Join-Path $dest "SOUNDS" }
         New-Item -ItemType Directory $destSnd -Force | Out-Null
         $sounds | Sort-Object FullName -Unique |

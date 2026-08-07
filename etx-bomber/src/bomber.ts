@@ -108,26 +108,24 @@ class Game {
         (playTone as unknown as (f: number, d: number, p: number) => void)(freq, duration, pause);
     }
 
-    // play a WAV from the SOUNDS folder; fall back to a tone if not found
-    private playSfxFile(file: string, freq: number, duration: number) {
+    // The sound files live in /GAMES/SOUND/<game>/ on the radio; /SOUNDS/<game>/
+    // is a fallback (both verified to play). playFile is silent for missing
+    // files, so only the path that exists produces sound.
+    private playSound(dir: string, file: string) {
         if (!this.soundEnabled) {
             return;
         }
         const tries = [
-            `./SOUNDS/bomber/${file}`,
-            `/SOUNDS/bomber/${file}`,
-            `./SOUNDS/en/${file}`,
-            `./SOUNDS/${file}`,
-            `/SOUNDS/en/${file}`,
-            `/SOUNDS/${file}`,
+            `/GAMES/SOUNDS/${dir}/${file}`,
+            `/SOUNDS/${dir}/${file}`,
         ];
         for (let i = 0; i < tries.length; i++) {
-            const ok = (playFile as unknown as (p: string) => boolean)(tries[i]);
-            if (ok) {
-                return;
-            }
+            (playFile as unknown as (p: string) => void)(tries[i]);
         }
-        (playTone as unknown as (f: number, d: number, p: number) => void)(freq, duration, 0);
+    }
+
+    private playSfxFile(file: string, freq: number, duration: number) {
+        this.playSound('bomber', file);
     }
 
     private loadImage(name: string): Bitmap | null {

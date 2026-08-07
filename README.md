@@ -10,7 +10,7 @@ All games are pre-packaged (scripts + images + sounds):
 
 [📦 Download GAMES.zip (v1.0)](https://github.com/cpp2go/edgetx_games/releases/download/v1.0/GAMES.zip)
 
-After unzipping, follow the install steps below and copy `SCRIPTS/`, `IMAGES/`, `SOUNDS/` to the radio's SD card.
+After unzipping, copy each game's folder into `/GAMES/<name>/` on the radio's SD card (see install steps below).
 
 ## Games
 
@@ -29,6 +29,7 @@ After unzipping, follow the install steps below and copy `SCRIPTS/`, `IMAGES/`, 
 | `etx-snake` | **Snake** | Classic Snake |
 | `etx-sudoku` | **Sudoku** | Classic 9×9 Sudoku with 3 difficulties, touch number pad + hints |
 | `etx-tetris` | **Tetris** | Classic Tetris |
+| `etx-vampire` | **Vampire** | Vampire Survivors-style survival: auto-attack, endless waves, level-up power picks |
 
 ## Supported Transmitters
 
@@ -42,31 +43,33 @@ Black-and-white / grayscale screens are **not supported**.
 
 ## Installation
 
-Each game can be run as a **full-screen widget** on the main screen, or as a **standalone script** from the SYS menu.
+Each game deploys into its own folder `/GAMES/<name>/` on the SD card, and can be run as a **full-screen widget** on the main screen, or as a **standalone script** from the SYS menu.
 
 ### As a Widget
 
-Copy three files to the transmitter's SD card:
+Copy the game folder to the transmitter's SD card:
 
 | SD card path | Source file |
 |---|---|
-| `/SCRIPTS/GAMES/IMAGES/*.png` | `etx-<name>/_site/IMAGES/<name>.lua` |
-| `/SCRIPTS/GAMES/SCRIPTS/*.lua` | `etx-<name>/_site/SCRIPTS/<name>.lua` |
-| `/SCRIPTS/GAMES/<Name>.lua` | `etx-<name>/_site/SCRIPTS/<Name>.lua` |
+| `/GAMES/<name>/<name>.lua` | `etx-<name>/_site/<name>.lua` |
+| `/GAMES/<name>/SCRIPTS/<Name>.lua` | `etx-<name>/_site/SCRIPTS/<Name>.lua` |
+| `/GAMES/<name>/IMAGES/*.png` | `etx-<name>/_site/IMAGES/*.png` |
+| `/GAMES/SOUNDS/<name>/*.wav` | `etx-<name>/_site/SOUNDS/<name>/*.wav` |
 
-The widget loads the standalone script at runtime, so **both files are required**.
+The widget loads the standalone script at runtime, so **both Lua files are required**.
 
 Example for Breakout:
 
 ```
 SD card:
-  SCRIPTS/
-    GAMES/
+  GAMES/
+    breakout/
+      breakout.lua          ← _site/breakout.lua
       SCRIPTS/
-        main.lua          ← _site/breakout.lua
-  SCRIPTS/
-    GAMES/
-      Breakout.lua      ← _site/SCRIPTS/Breakout.lua
+        Breakout.lua        ← _site/SCRIPTS/Breakout.lua
+      IMAGES/               ← _site/IMAGES/ (if any)
+    SOUNDS/
+      breakout/             ← _site/SOUNDS/breakout/
 ```
 
 Then on the transmitter: long-press main screen → **Edit** → **Add Widget** → select the game.
@@ -77,7 +80,7 @@ Copy only the script file:
 
 | SD card path | Source file |
 |---|---|
-| `/SCRIPTS/GAMES/<Name>.lua` | `etx-<name>/_site/SCRIPTS/<Name>.lua` |
+| `/GAMES/<name>/SCRIPTS/<Name>.lua` | `etx-<name>/_site/SCRIPTS/<Name>.lua` |
 
 Then: **SYS** → **Scripts** → select the game.
 
