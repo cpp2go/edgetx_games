@@ -35,6 +35,13 @@ interface Spark {
     c: number;
 }
 
+interface Obstacle {
+    x: number;
+    y: number;
+    r: number; // collision radius
+    t: number; // sprite index 0..5
+}
+
 interface Upg {
     id: number;
     name: string;
@@ -55,6 +62,7 @@ class Game {
     private camX = 0;
     private camY = 0;
     private decor: { x: number; y: number; t: number }[] = [];
+    private obstacles: Obstacle[] = [];
 
     // player
     private px = 0;
@@ -92,6 +100,11 @@ class Game {
     private spawnInterval = 1.0;
     private scale = 1;
 
+    // boss events (Survivor.io style: walls close in around the player)
+    private bossActive = false;
+    private nextBoss = 150;
+    private bossFlash = 0;
+
     // level-up picker
     private upgChoices: Upg[] = [];
     private upgSel = 0;
@@ -106,16 +119,17 @@ class Game {
     private shootSndCd = 0;
     private killSndCd = 0;
     private gemSndCd = 0;
-    private bgmNext = 0;
 
     // sprites (pre-scaled, drawn at 100%)
     private pwImgs: (Bitmap | null)[] = [];
     private eImgs: (Bitmap | null)[][] = [];
+    private uImgs: (Bitmap | null)[] = [];
+    private oImgs: (Bitmap | null)[] = [];
     private bulletImg: Bitmap | null = null;
     private animTimer = 0;
     private animFrame = 0;
 
-    // palette
+    // palette (original)
     private bg1 = lcd.RGB(22, 15, 32);
     private bg2 = lcd.RGB(40, 32, 54);
     private gridC = lcd.RGB(54, 44, 68);
@@ -126,8 +140,9 @@ class Game {
     constructor(w: number, h: number) {
         this.w = w;
         this.h = h;
-        this.worldW = w * 3;
-        this.worldH = h * 3;
+        // effectively infinite open map (no reachable boundary)
+        this.worldW = 200000;
+        this.worldH = 200000;
         this.px = this.worldW / 2;
         this.py = this.worldH / 2;
         this.camX = this.px - w / 2;
@@ -150,6 +165,34 @@ class Game {
         }
     }
 
+    private buildArena(cx: number, cy: number) {
+        // boss event: a solid ring of walls closes in around the player
+        this.obstacles = [];
+        const n = 16;
+        const R = 140;
+        for (let i = 0; i < n; i++) {
+            const a = (i / n) * Math.PI * 2;
+            const x = Math.max(70, Math.min(this.worldW - 70, cx + Math.cos(a) * R));
+            const y = Math.max(70, Math.min(this.worldH - 70, cy + Math.sin(a) * R));
+            this.obstacles.push({ x, y, r: 27, t: 5 });
+        }
+    }
+
+    private startBoss() {
+        // Survivor.io style: walls close in, boss drops inside the arena
+        this.bossActive = true;
+        this.buildArena(this.px, this.py);
+        const ang = this.randRange(0, Math.PI * 2);
+        const bx = Math.max(40, Math.min(this.worldW - 40, this.px + Math.cos(ang) * 70));
+        const by = Math.max(40, Math.min(this.worldH - 40, this.py + Math.sin(ang) * 70));
+        const boss: Enemy = { x: bx, y: by, hp: 200, maxHp: 200, speed: 18, r: 24, kind: 11, hit: 0, exp: 25 };
+        boss.hp = Math.floor(boss.hp * this.scale);
+        boss.maxHp = boss.hp;
+        this.enemies.push(boss);
+        this.bossFlash = 3.0;
+        this.playSfx(320, 260, 180);
+    }
+
     // ---------- audio ----------
     private playSfx(freq: number, duration: number, pause: number = 0) {
         if (!this.soundEnabled) {
@@ -169,9 +212,23 @@ class Game {
             `/GAMES/SOUNDS/${dir}/${file}`,
             `/SOUNDS/${dir}/${file}`,
         ];
+        // play ONLY the first path that actually exists. Playing both candidate
+        // paths (when both files are on the SD) plays every sound twice and
+        // makes firing and audio sound out of sync.
         for (let i = 0; i < tries.length; i++) {
-            (playFile as unknown as (p: string) => void)(tries[i]);
+            let exists = false;
+            try {
+                exists = (fstat as unknown as (p: string) => any)(tries[i]) != null;
+            } catch (e) {
+                exists = false;
+            }
+            if (exists) {
+                (playFile as unknown as (p: string) => void)(tries[i]);
+                return;
+            }
         }
+        // fallback: try the first candidate anyway
+        (playFile as unknown as (p: string) => void)(tries[0]);
     }
 
     private tryPlayFile(file: string): boolean {
@@ -189,11 +246,10 @@ class Game {
         this.playSfx(freq, duration, 0);
     }
 
-    private playBgm() {
-        if (!this.soundEnabled) {
-            return;
-        }
-        this.tryPlayFile('bgm.wav');
+    private stopAudio() {
+        // EdgeTX: stops all currently playing audio (used on exit / game over so
+        // the BGM doesn't keep playing after leaving the widget)
+        (flushAudio as unknown as () => void)();
     }
 
     private loadImage(name: string): Bitmap | null {
@@ -218,13 +274,17 @@ class Game {
         for (let i = 0; i < 4; i++) {
             this.pwImgs[i] = this.loadImage(`vamp-pw${i}.png`);
         }
-        for (let k = 0; k < 4; k++) {
+        for (let k = 0; k < 16; k++) {
             this.eImgs[k] = [];
             for (let f = 0; f < 4; f++) {
                 this.eImgs[k][f] = this.loadImage(`vamp-e${k}-${f}.png`);
             }
         }
         this.bulletImg = this.loadImage('vamp-bullet.png');
+        for (let u = 0; u < 9; u++) {
+            this.uImgs[u] = this.loadImage(`vamp-u${u}.png`);
+        }
+        this.oImgs[5] = this.loadImage('vamp-o5.png'); // boss-arena wall
     }
 
     private randRange(a: number, b: number): number {
@@ -261,9 +321,12 @@ class Game {
         this.animTimer = 0;
         this.animFrame = 0;
         this.upgradeFlash = '';
+        this.bossActive = false;
+        this.nextBoss = 150;
+        this.bossFlash = 0;
+        this.obstacles = [];
         this.killSndCd = 0;
         this.gemSndCd = 0;
-        this.bgmNext = getTime() + 60;
         this.state = this.phase.playing;
         this.playSfxFile('start.wav', 660, 120);
     }
@@ -274,29 +337,42 @@ class Game {
         const ang = this.randRange(0, Math.PI * 2);
         let x = this.px + Math.cos(ang) * R;
         let y = this.py + Math.sin(ang) * R;
-        x = Math.max(10, Math.min(this.worldW - 10, x));
-        y = Math.max(10, Math.min(this.worldH - 10, y));
+        x = Math.max(30, Math.min(this.worldW - 30, x));
+        y = Math.max(30, Math.min(this.worldH - 30, y));
+        // 16 enemy kinds from danke, one per "关", unlocking over time
         let maxKind = 0;
-        if (this.time > 30) {
-            maxKind = 1;
+        const unlock = [0, 25, 50, 80, 110, 145, 180, 220, 265, 320, 380, 450, 520, 600, 690, 790];
+        for (let k = 0; k < unlock.length; k++) {
+            if (this.time > unlock[k]) {
+                maxKind = k;
+            }
         }
-        if (this.time > 70) {
-            maxKind = 2;
+        let kind = Math.floor(this.randRange(0, maxKind + 1));
+        if (kind == 11) {
+            kind = 10; // kind 11 is the boss, spawned by boss events only
         }
-        if (this.time > 120) {
-            maxKind = 3;
-        }
-        const kind = Math.floor(this.randRange(0, maxKind + 1));
-        const base: Enemy = { x, y, hp: 10, maxHp: 10, speed: 40, r: 8, kind, hit: 0, exp: 1 };
-        if (kind == 0) {
-            base.hp = 10; base.maxHp = 10; base.speed = 42; base.r = 8; base.exp = 1;
-        } else if (kind == 1) {
-            base.hp = 6; base.maxHp = 6; base.speed = 74; base.r = 6; base.exp = 2;
-        } else if (kind == 2) {
-            base.hp = 32; base.maxHp = 32; base.speed = 26; base.r = 14; base.exp = 5;
-        } else {
-            base.hp = 9; base.maxHp = 9; base.speed = 98; base.r = 7; base.exp = 3;
-        }
+        const base: Enemy = { x, y, hp: 10, maxHp: 10, speed: 40, r: 12, kind, hit: 0, exp: 1 };
+        // kind: hp, speed, r, exp  (sprite size grows with kind)
+        const stat: [number, number, number, number][] = [
+            [10, 42, 14, 1],   // 0  僵尸 Zombie
+            [7, 78, 16, 2],    // 1  小熊 Xiaoxiong
+            [6, 90, 16, 2],    // 2  尖翅飞虫 Jiancifeichong
+            [14, 55, 16, 3],   // 3  保安 Baoan
+            [38, 24, 17, 5],   // 4  炮弹 Baolei (tank)
+            [22, 40, 17, 4],   // 5  脉冲塔 Maichongta
+            [30, 60, 19, 6],   // 6  单行机器人 Danxingjiqiren
+            [55, 22, 19, 8],   // 7  导弹塔 Daodanta
+            [26, 95, 19, 7],   // 8  晶石虫 Jingshichong
+            [70, 35, 19, 10],  // 9  沙人 Sharen
+            [90, 26, 21, 12],  // 10 迫击炮 Morenpao03 (elite mortar)
+            [200, 18, 24, 25], // 11 飞碟 Boss FeiDieBoss
+            [140, 30, 21, 16], // 12 红色炮弹 Super Baolei
+            [120, 68, 21, 18], // 13 金色机器人 Super Robot
+            [180, 26, 21, 20], // 14 红色导弹塔 Super Daodanta
+            [150, 44, 21, 22], // 15 金色沙人 Super Sharen
+        ];
+        const s = stat[Math.min(kind, stat.length - 1)];
+        base.hp = s[0]; base.maxHp = s[0]; base.speed = s[1]; base.r = s[2]; base.exp = s[3];
         base.hp = Math.floor(base.hp * this.scale);
         base.maxHp = base.hp;
         base.speed = base.speed * (1 + (this.scale - 1) * 0.5);
@@ -343,7 +419,9 @@ class Game {
             this.bullets.splice(0, this.bullets.length - 70);
         }
         if (this.shootSndCd <= 0) {
-            this.playSfxFile('chop1.wav', 1600, 8);
+            // short punchy shot: distinct per-shot (no continuous drone), and
+            // short enough to play every shot without piling up the queue
+            this.playSfxFile('shoot.wav', 1600, 8);
             this.shootSndCd = 0.16;
         }
     }
@@ -433,6 +511,14 @@ class Game {
         this.spawnInterval = Math.max(0.28, 1.0 * Math.pow(0.92, this.time / 10));
         this.scale = 1 + this.time / 15 * 0.15;
 
+        // boss event: walls close in when the timer hits
+        if (this.bossFlash > 0) {
+            this.bossFlash -= dt;
+        }
+        if (!this.bossActive && this.time >= this.nextBoss) {
+            this.startBoss();
+        }
+
         this.updatePlayer(dt);
         this.updateFire(dt);
         this.updateBullets(dt);
@@ -460,11 +546,25 @@ class Game {
             this.py += ny * this.speed * dt;
             this.face = Math.atan2(ny, nx);
         }
-        // clamp to the big world and smooth-follow the camera
-        this.px = Math.max(20, Math.min(this.worldW - 20, this.px));
-        this.py = Math.max(20, Math.min(this.worldH - 20, this.py));
-        this.camX += (this.px - this.w / 2 - this.camX) * Math.min(1, dt * 8);
-        this.camY += (this.py - this.h / 2 - this.camY) * Math.min(1, dt * 8);
+        // clamp to the big world (no visible walls, open grass field)
+        this.px = Math.max(12, Math.min(this.worldW - 12, this.px));
+        this.py = Math.max(12, Math.min(this.worldH - 12, this.py));
+        // collide with solid obstacles (push out, like danke walls)
+        for (let i = 0; i < this.obstacles.length; i++) {
+            const o = this.obstacles[i];
+            const dx = this.px - o.x;
+            const dy = this.py - o.y;
+            const rr = o.r + 11;
+            const d2 = dx * dx + dy * dy;
+            if (d2 < rr * rr) {
+                const d = Math.sqrt(d2) || 1;
+                this.px = o.x + (dx / d) * rr;
+                this.py = o.y + (dy / d) * rr;
+            }
+        }
+        // camera locked to the player (no lag, no jitter — the whole world moves together)
+        this.camX = this.px - this.w / 2;
+        this.camY = this.py - this.h / 2;
         if (this.inv > 0) {
             this.inv -= dt;
         }
@@ -484,7 +584,24 @@ class Game {
             b.x += b.vx * dt;
             b.y += b.vy * dt;
             b.life -= dt;
-            if (b.life <= 0 || b.x < this.camX - 40 || b.x > this.camX + this.w + 40 || b.y < this.camY - 40 || b.y > this.camY + this.h + 40) {
+            if (b.life <= 0 || b.x < this.camX - 40 || b.x > this.camX + this.w + 40 || b.y < this.camY - 40 || b.y > this.camY + this.h + 40 || b.x < 0 || b.x > this.worldW || b.y < 0 || b.y > this.worldH) {
+                this.bullets.splice(i, 1);
+                continue;
+            }
+            // blocked by solid obstacles (walls stop bullets)
+            let blocked = false;
+            for (let k = 0; k < this.obstacles.length; k++) {
+                const o = this.obstacles[k];
+                const dx = b.x - o.x;
+                const dy = b.y - o.y;
+                const rr = o.r + 2;
+                if (dx * dx + dy * dy < rr * rr) {
+                    this.sparks.push({ x: b.x, y: b.y, t: 0.1, c: this.bulletC });
+                    blocked = true;
+                    break;
+                }
+            }
+            if (blocked) {
                 this.bullets.splice(i, 1);
                 continue;
             }
@@ -552,7 +669,8 @@ class Game {
                 this.gainExp(g.val);
                 this.gems.splice(i, 1);
                 if (this.state == this.phase.playing && this.gemSndCd <= 0) {
-                    this.gemSndCd = 0.12;
+                    // food.wav is ~0.52s: throttle so the queue doesn't pile up
+                    this.gemSndCd = 0.6;
                     this.playSfxFile('food.wav', 1200, 10);
                 }
                 continue;
@@ -583,8 +701,18 @@ class Game {
             this.sparks.splice(0, this.sparks.length - 40);
         }
         if (this.killSndCd <= 0) {
-            this.killSndCd = 0.1;
-            this.playSfxFile('die.wav', 500 + e.kind * 120, 16);
+            // short kill sound: a long die.wav (2.17s) blocks the audio queue
+            // and delays the per-shot sound, desyncing fire from sound
+            this.killSndCd = 0.5;
+            this.playSfxFile('kill.wav', 500 + e.kind * 120, 16);
+        }
+        // killing the boss opens the arena walls and schedules the next one
+        if (e.kind == 11 && this.bossActive) {
+            this.bossActive = false;
+            this.obstacles = [];
+            this.nextBoss = this.time + 150;
+            this.bossFlash = 2.0;
+            this.playSfx(600, 220, 120);
         }
     }
 
@@ -604,6 +732,7 @@ class Game {
 
     private gameOver() {
         this.state = this.phase.gameOver;
+        this.stopAudio();
         this.playSfxFile('ehurt2.wav', 160, 260);
     }
 
@@ -636,6 +765,11 @@ class Game {
     }
 
     private onEvent(event: number) {
+        // leaving the game / widget: stop all audio so the BGM doesn't linger
+        if (event == EVT_EXIT_BREAK || event == EVT_VIRTUAL_EXIT) {
+            this.stopAudio();
+            return;
+        }
         if (event == EVT_SYS_BREAK) {
             this.newGame();
             return;
@@ -725,6 +859,28 @@ class Game {
         }
     }
 
+    private drawObstacles() {
+        const fc = lcd.drawFilledCircle as unknown as (x: number, y: number, rr: number, flags?: number) => void;
+        const colors = [
+            lcd.RGB(150, 110, 60), lcd.RGB(62, 110, 52), lcd.RGB(70, 120, 60),
+            lcd.RGB(180, 160, 90), lcd.RGB(120, 130, 150), lcd.RGB(130, 130, 140),
+        ];
+        for (let i = 0; i < this.obstacles.length; i++) {
+            const o = this.obstacles[i];
+            const ox = Math.floor(o.x - this.camX);
+            const oy = Math.floor(o.y - this.camY);
+            if (ox < -50 || ox > this.w + 50 || oy < -50 || oy > this.h + 50) {
+                continue;
+            }
+            const img = this.oImgs[o.t];
+            if (img != null) {
+                this.drawSprite(img, ox, oy);
+            } else {
+                fc(ox, oy, o.r, colors[o.t]);
+            }
+        }
+    }
+
     private drawGems() {
         for (let i = 0; i < this.gems.length; i++) {
             const g = this.gems[i];
@@ -747,21 +903,28 @@ class Game {
     private drawEnemies() {
         for (let i = 0; i < this.enemies.length; i++) {
             const e = this.enemies[i];
-            const kind = e.kind % 4;
+            const kind = e.kind % 16;
             const ex = e.x - this.camX;
             const ey = e.y - this.camY;
             const img = this.eImgs[kind][this.animFrame];
             if (img != null) {
                 this.drawSprite(img, ex, ey);
                 if (e.hit > 0) {
-                    this.drawCircle(ex, ey, e.r * 0.5, lcd.RGB(255, 255, 255));
+                    this.drawCircle(ex, ey, e.r * 0.5, lcd.RGB(255, 90, 90));
                 }
             } else {
-                const c = [lcd.RGB(190, 58, 58), lcd.RGB(228, 138, 42), lcd.RGB(74, 170, 94), lcd.RGB(160, 84, 226)][kind];
-                this.drawCircle(ex, ey, e.r, e.hit > 0 ? lcd.RGB(255, 255, 255) : c);
+                const c = [
+                    lcd.RGB(150, 150, 150), lcd.RGB(190, 120, 60), lcd.RGB(140, 200, 90),
+                    lcd.RGB(90, 150, 220), lcd.RGB(60, 200, 160), lcd.RGB(230, 170, 40),
+                    lcd.RGB(200, 80, 220), lcd.RGB(60, 120, 220), lcd.RGB(120, 220, 120),
+                    lcd.RGB(240, 80, 80), lcd.RGB(160, 120, 80), lcd.RGB(120, 120, 130),
+                    lcd.RGB(255, 80, 80), lcd.RGB(255, 210, 60), lcd.RGB(255, 80, 80),
+                    lcd.RGB(255, 210, 60),
+                ][kind];
+                this.drawCircle(ex, ey, e.r, e.hit > 0 ? lcd.RGB(255, 90, 90) : c);
             }
-            // tiny hp ring for tanks
-            if (e.kind == 2 && e.hp < e.maxHp) {
+            // tiny hp ring for big enemies
+            if (e.r >= 17 && e.hp < e.maxHp) {
                 const frac = Math.max(0, e.hp / e.maxHp);
                 lcd.drawRectangle(
                     Math.floor(ex - e.r),
@@ -836,6 +999,9 @@ class Game {
             lcd.drawFilledRectangle(this.w / 2 - 55, 34, 110, 18, lcd.RGB(30, 22, 44));
             lcd.drawText(this.w / 2, 38, `+ ${this.upgradeFlash}`, SMLSIZE | CENTER | lcd.RGB(255, 226, 118));
         }
+        if (this.bossFlash > 0 && Math.floor(this.bossFlash * 4) % 2 == 0) {
+            lcd.drawText(this.w / 2, this.h / 2 - 34, 'BOSS!', DBLSIZE | CENTER | lcd.RGB(220, 60, 60));
+        }
     }
 
     private drawLevelUp() {
@@ -856,7 +1022,12 @@ class Game {
             lcd.drawRectangle(x, y0, cw, chh, sel ? lcd.RGB(255, 226, 118) : lcd.RGB(90, 78, 120), 2);
             const u = this.upgChoices[i];
             lcd.drawText(x + cw / 2, y0 + 8, u.name, SMLSIZE | CENTER | lcd.RGB(255, 255, 255));
-            lcd.drawText(x + cw / 2, y0 + 30, u.icon, DBLSIZE | CENTER | this.gemC);
+            const uimg = this.uImgs[u.id];
+            if (uimg != null) {
+                this.drawSprite(uimg, x + cw / 2, y0 + 50);
+            } else {
+                lcd.drawText(x + cw / 2, y0 + 30, u.icon, DBLSIZE | CENTER | this.gemC);
+            }
         }
         lcd.drawText(this.w / 2, y0 + chh + 12, 'up/down: move   ENTER: pick', SMLSIZE | CENTER | COLOR_THEME_PRIMARY1);
     }
@@ -870,6 +1041,7 @@ class Game {
 
     private draw() {
         this.drawBackground();
+        this.drawObstacles();
         this.drawGems();
         this.drawEnemies();
         this.drawBullets();
@@ -901,10 +1073,6 @@ class Game {
         }
         if (this.state == this.phase.playing) {
             this.update(dt);
-        }
-        if ((this.state == this.phase.playing || this.state == this.phase.initial) && now >= this.bgmNext) {
-            this.bgmNext = now + 245;
-            this.playBgm();
         }
         this.draw();
         return 0;

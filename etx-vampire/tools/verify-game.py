@@ -36,16 +36,29 @@ def spawn_enemy():
     ang = random.uniform(0, 2 * math.pi)
     x = max(10, min(WW - 10, px + math.cos(ang) * R))
     y = max(10, min(WH - 10, py + math.sin(ang) * R))
+    unlock = [0, 25, 50, 80, 110, 145, 180, 220, 265, 320, 380, 450, 520, 600, 690, 790]
     max_kind = 0
-    if t > 30: max_kind = 1
-    if t > 70: max_kind = 2
-    if t > 120: max_kind = 3
+    for k, u in enumerate(unlock):
+        if t > u:
+            max_kind = k
     kind = random.randrange(max_kind + 1)
     stats = {
         0: (10, 42, 8, 1),
-        1: (6, 74, 6, 2),
-        2: (32, 26, 14, 5),
-        3: (9, 98, 7, 3),
+        1: (7, 78, 9, 2),
+        2: (6, 90, 9, 2),
+        3: (14, 55, 9, 3),
+        4: (38, 24, 10, 5),
+        5: (22, 40, 10, 4),
+        6: (30, 60, 12, 6),
+        7: (55, 22, 12, 8),
+        8: (26, 95, 12, 7),
+        9: (70, 35, 12, 10),
+        10: (90, 26, 14, 12),
+        11: (200, 18, 17, 25),
+        12: (140, 30, 14, 16),
+        13: (120, 68, 14, 18),
+        14: (180, 26, 14, 20),
+        15: (150, 44, 14, 22),
     }[kind]
     h = math.floor(stats[0] * scale)
     enemies.append({"x": x, "y": y, "hp": h, "max": h, "speed": stats[1] * (1 + (scale - 1) * 0.5),
