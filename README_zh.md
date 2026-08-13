@@ -20,6 +20,7 @@
 | `etx-asteroids` | **Asteroids** | 经典太空小行星射击 |
 | `etx-bomber` | **Bomberman 炸弹人** | 放置定时炸弹，十字形火焰，砸砖掉落道具 |
 | `etx-breakout` | **Breakout 打砖块** | 多关卡打砖块，难度递增 |
+| `etx-famidash` | **Famidash 几何冲刺** | 几何冲刺式自动跑酷：点按跳刺、上平台，再驾驶飞船穿越通道 |
 | `etx-galuaxian` | **GaLuaxian 太空射击** | Galaga 风格太空射击（带 widget 和音效） |
 | `etx-jumpjump` | **Jump Jump 跳一跳** | 等距 3D 跳跃游戏，带图片、动画、音效和音乐 |
 | `etx-link` | **Link 连连看** | 连连看 / 麻将连线消除 |

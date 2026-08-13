@@ -36,6 +36,7 @@ $GameNames = @{
     "asteroids" = "Asteroids"
     "bomber"    = "Bomber"
     "breakout"  = "Breakout"
+    "famidash"  = "Famidash"
     "galuaxian" = "GaLuaxian"
     "jumpjump"  = "JumpJump"
     "link"      = "Link"

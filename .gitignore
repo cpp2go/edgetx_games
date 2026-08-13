@@ -6,3 +6,10 @@
 
 # Build output (use build-all.ps1 -> root _site)
 **/_site/
+
+# Local render snapshots from the verify/render tools
+**/tools/_render/
+
+# Python bytecode
+**/__pycache__/
+*.pyc

@@ -20,6 +20,7 @@ After unzipping, copy each game's folder into `/GAMES/<name>/` on the radio's SD
 | `etx-asteroids` | **Asteroids** | Classic arcade Asteroids |
 | `etx-bomber` | **Bomberman** | Bomberman: place timed bombs, cross-shaped flames, brick-dropped power-ups |
 | `etx-breakout` | **Breakout** | Brick-breaking game with multiple levels and increasing difficulty |
+| `etx-famidash` | **Famidash 几何冲刺** | Geometry Dash-style auto-runner: tap to jump spikes, ride blocks, then fly the ship through a corridor |
 | `etx-galuaxian` | **GaLuaxian** | Galaga-style space shooter (TypeScript-built, with widget + sounds) |
 | `etx-jumpjump` | **Jump Jump** | Isometric 3D jump game with images, animations, SFX & music |
 | `etx-link` | **Link** | Tile-matching puzzle game (LianLianKan / Mahjong Connect style) |
