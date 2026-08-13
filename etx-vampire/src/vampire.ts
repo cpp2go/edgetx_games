@@ -126,51 +126,13 @@ class Game {
     private uImgs: (Bitmap | null)[] = [];
     private oImgs: (Bitmap | null)[] = [];
     private bulletImg: Bitmap | null = null;
-
-    // themed ground textures (vamp-bg0..5.png, seamless tileable, from the
-    // original game). theme advances over time so each "stage" gets its look.
-    private bgTex: (Bitmap | null)[] = [];
-    private theme = 0; // current theme 0..5
-    private themeFade = 0; // short dark flash masking a texture swap
-    private themeTime = 45; // seconds per theme
-
-    // city street grid: a road (sidewalk + asphalt + sidewalk) runs along every
-    // block boundary, world-anchored like the ground so it scrolls with you
-    private roadSize = 256; // one city block per ground tile
-    private roadW = 46; // full road band width (sidewalk + asphalt + sidewalk)
-    private sw = 10; // sidewalk strip width
-    private asphaltC = lcd.RGB(48, 50, 58);
-    private sidewalkC = lcd.RGB(150, 153, 160);
-
-    // building footprints inside each city block: muted roof tones + edge
-    // outline (matches the original city map), seeded per block so the layout
-    // is stable while scrolling and gameplay sprites stay readable
-    private buildingC: number[] = [
-        lcd.RGB(118, 122, 146),
-        lcd.RGB(148, 148, 168),
-        lcd.RGB(98, 108, 136),
-        lcd.RGB(152, 134, 114),
-        lcd.RGB(128, 112, 96),
-        lcd.RGB(112, 104, 126),
-    ];
-    private buildingEdge = lcd.RGB(52, 54, 66);
-
     private animTimer = 0;
     private animFrame = 0;
-
-    // fallback base fill per theme (used only when the texture fails to load)
-    private static THEME: number[][] = [
-        [30, 28, 40], // 0 stone / gray
-        [22, 30, 22], // 1 grass / green
-        [30, 28, 20], // 2 field / olive
-        [38, 30, 20], // 3 desert / tan
-        [34, 24, 18], // 4 autumn / orange
-        [16, 28, 32], // 5 water / teal
-    ];
 
     // palette (original)
     private bg1 = lcd.RGB(22, 15, 32);
     private bg2 = lcd.RGB(40, 32, 54);
+    private gridC = lcd.RGB(54, 44, 68);
     private bulletC = lcd.RGB(255, 226, 118);
     private gemC = lcd.RGB(96, 224, 255);
     private playerC = lcd.RGB(245, 240, 255);
@@ -323,9 +285,6 @@ class Game {
             this.uImgs[u] = this.loadImage(`vamp-u${u}.png`);
         }
         this.oImgs[5] = this.loadImage('vamp-o5.png'); // boss-arena wall
-        for (let b = 0; b < 6; b++) {
-            this.bgTex[b] = this.loadImage(`vamp-bg${b}.png`);
-        }
     }
 
     private randRange(a: number, b: number): number {
@@ -365,8 +324,6 @@ class Game {
         this.bossActive = false;
         this.nextBoss = 150;
         this.bossFlash = 0;
-        this.theme = 0;
-        this.themeFade = 0;
         this.obstacles = [];
         this.killSndCd = 0;
         this.gemSndCd = 0;
@@ -539,16 +496,6 @@ class Game {
     // ---------- update ----------
     private update(dt: number) {
         this.time += dt;
-        // theme advances over time: each "stage" swaps to the next ground texture
-        const wantTheme = Math.floor(this.time / this.themeTime) % 6;
-        if (wantTheme != this.theme) {
-            this.theme = wantTheme;
-            this.themeFade = 0.3;
-            this.playSfx(210, 150, 0); // soft arena-shift cue
-        }
-        if (this.themeFade > 0) {
-            this.themeFade -= dt;
-        }
         this.shootSndCd -= dt;
         this.killSndCd -= dt;
         this.gemSndCd -= dt;
@@ -857,31 +804,8 @@ class Game {
 
     // ---------- draw ----------
     private drawBackground() {
-        // themed ground: tile the current theme's seamless texture, scrolled with
-        // the camera so the ground stays world-anchored. Falls back to a flat
-        // themed fill if the bitmap is missing.
-        const tex = this.bgTex[this.theme];
-        if (tex != null) {
-            const tw = Bitmap.getSize(tex)[0];
-            const th = Bitmap.getSize(tex)[1];
-            const tx0 = Math.floor(this.camX / tw);
-            const tx1 = Math.floor((this.camX + this.w) / tw);
-            const ty0 = Math.floor(this.camY / th);
-            const ty1 = Math.floor((this.camY + this.h) / th);
-            for (let gx = tx0; gx <= tx1; gx++) {
-                const sx = Math.floor(gx * tw - this.camX);
-                for (let gy = ty0; gy <= ty1; gy++) {
-                    const sy = Math.floor(gy * th - this.camY);
-                    lcd.drawBitmap(tex, sx, sy, 100);
-                }
-            }
-        } else {
-            const c = Game.THEME[this.theme];
-            lcd.drawFilledRectangle(0, 0, this.w, this.h, lcd.RGB(c[0], c[1], c[2]));
-        }
-        // light grid over the ground for readability (world-anchored)
-        const tc = Game.THEME[this.theme];
-        const gridC = lcd.RGB(tc[0] + 26, tc[1] + 26, tc[2] + 26);
+        lcd.drawFilledRectangle(0, 0, this.w, this.h, this.bg1);
+        // world grid, scrolled with the camera
         const step = 40;
         const gx0 = Math.floor(this.camX / step);
         const gx1 = Math.floor((this.camX + this.w) / step);
@@ -889,14 +813,12 @@ class Game {
         const gy1 = Math.floor((this.camY + this.h) / step);
         for (let gx = gx0; gx <= gx1; gx++) {
             const sx = Math.floor(gx * step - this.camX);
-            lcd.drawLine(sx, 0, sx, this.h, SOLID, gridC);
+            lcd.drawLine(sx, 0, sx, this.h, SOLID, this.gridC);
         }
         for (let gy = gy0; gy <= gy1; gy++) {
             const sy = Math.floor(gy * step - this.camY);
-            lcd.drawLine(0, sy, this.w, sy, SOLID, gridC);
+            lcd.drawLine(0, sy, this.w, sy, SOLID, this.gridC);
         }
-        // city buildings inside each block (before roads so streets stay clean)
-        this.drawBuildings();
         // static world decorations (grass tufts / rocks / flowers)
         const fc = lcd.drawFilledCircle as unknown as (x: number, y: number, rr: number, flags?: number) => void;
         for (let i = 0; i < this.decor.length; i++) {
@@ -918,75 +840,6 @@ class Game {
                 // small flower
                 fc(dx, dy, 2, lcd.RGB(178, 96, 130));
             }
-        }
-        // city street grid: roads + sidewalks on top of the ground so streets stay clean
-        this.drawRoads();
-        // theme-shift flash: briefly darken the whole screen so the swap is masked
-        if (this.themeFade > 0) {
-            lcd.drawFilledRectangle(0, 0, this.w, this.h, this.bg1);
-        }
-    }
-
-    private drawBuildings() {
-        // 2x2 building footprints per block interior, seeded from the block
-        // index so the layout is stable while scrolling
-        const s = this.roadSize;
-        const half = Math.floor(this.roadW / 2);
-        const isz = s - this.roadW; // block interior size
-        const gap = 10;
-        const cell = Math.floor((isz - gap) / 2);
-        const bx0 = Math.floor(this.camX / s);
-        const bx1 = Math.floor((this.camX + this.w) / s);
-        const by0 = Math.floor(this.camY / s);
-        const by1 = Math.floor((this.camY + this.h) / s);
-        for (let gx = bx0; gx <= bx1; gx++) {
-            for (let gy = by0; gy <= by1; gy++) {
-                const ix = gx * s + half; // interior origin (world)
-                const iy = gy * s + half;
-                const seed = (gx * 131 + gy * 977) & 0xffff;
-                for (let a = 0; a < 2; a++) {
-                    for (let b = 0; b < 2; b++) {
-                        const h = (seed + a * 7 + b * 11) & 0xf;
-                        const bw = cell - ((h & 1) ? 4 : 10);
-                        const bh = cell - ((h & 2) ? 4 : 10);
-                        const ox = (h >> 2) & 2;
-                        const oy = (h >> 4) & 2;
-                        const x0 = Math.floor(ix + a * (cell + gap) + ox - this.camX);
-                        const y0 = Math.floor(iy + b * (cell + gap) + oy - this.camY);
-                        if (x0 + bw < 0 || x0 > this.w || y0 + bh < 0 || y0 > this.h) {
-                            continue;
-                        }
-                        lcd.drawFilledRectangle(
-                            x0, y0, bw, bh,
-                            this.buildingC[(h + this.theme) % this.buildingC.length]
-                        );
-                        lcd.drawRectangle(x0, y0, bw, bh, this.buildingEdge, 1);
-                    }
-                }
-            }
-        }
-    }
-
-    private drawRoads() {
-        const s = this.roadSize;
-        const hw = Math.floor(this.roadW / 2);
-        // vertical roads (run north-south)
-        const rx0 = Math.floor(this.camX / s);
-        const rx1 = Math.floor((this.camX + this.w) / s);
-        for (let rx = rx0; rx <= rx1; rx++) {
-            const l = Math.floor(rx * s - hw - this.camX);
-            lcd.drawFilledRectangle(l, 0, this.sw, this.h, this.sidewalkC);
-            lcd.drawFilledRectangle(l + this.sw, 0, this.roadW - 2 * this.sw, this.h, this.asphaltC);
-            lcd.drawFilledRectangle(l + this.roadW - this.sw, 0, this.sw, this.h, this.sidewalkC);
-        }
-        // horizontal roads (run east-west)
-        const ry0 = Math.floor(this.camY / s);
-        const ry1 = Math.floor((this.camY + this.h) / s);
-        for (let ry = ry0; ry <= ry1; ry++) {
-            const t = Math.floor(ry * s - hw - this.camY);
-            lcd.drawFilledRectangle(0, t, this.w, this.sw, this.sidewalkC);
-            lcd.drawFilledRectangle(0, t + this.sw, this.w, this.roadW - 2 * this.sw, this.asphaltC);
-            lcd.drawFilledRectangle(0, t + this.roadW - this.sw, this.w, this.sw, this.sidewalkC);
         }
     }
 
