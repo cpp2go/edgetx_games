@@ -23,6 +23,7 @@ if not bit32.band then
     bnot = function(a) return ~a end,
     lshift = function(a,n) return a << n end,
     rshift = function(a,n) return a >> n end,
+    arshift = function(a,n) return a >> n end,
   }
 end
 """)

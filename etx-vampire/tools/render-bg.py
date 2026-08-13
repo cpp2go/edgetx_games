@@ -61,6 +61,34 @@ def decor(draw, camx, camy):
 ROAD_SIZE, ROAD_W, SW = 256, 46, 10
 ASPHALT = (48, 50, 58)
 SIDEWALK = (150, 153, 160)
+BUILDING_C = [(118, 122, 146), (148, 148, 168), (98, 108, 136),
+              (152, 134, 114), (128, 112, 96), (112, 104, 126)]
+BUILDING_EDGE = (52, 54, 66)
+
+
+def buildings(draw, camx, camy, theme):
+    s, half = ROAD_SIZE, ROAD_W // 2
+    isz = s - ROAD_W
+    gap = 10
+    cell = (isz - gap) // 2
+    for gx in range(camx // s, (camx + W) // s + 1):
+        for gy in range(camy // s, (camy + H) // s + 1):
+            ix, iy = gx * s + half, gy * s + half
+            seed = (gx * 131 + gy * 977) & 0xffff
+            for a in range(2):
+                for b in range(2):
+                    h = (seed + a * 7 + b * 11) & 0xf
+                    bw = cell - (4 if h & 1 else 10)
+                    bh = cell - (4 if h & 2 else 10)
+                    ox = (h >> 2) & 2
+                    oy = (h >> 4) & 2
+                    x0 = ix + a * (cell + gap) + ox - camx
+                    y0 = iy + b * (cell + gap) + oy - camy
+                    if x0 + bw < 0 or x0 > W or y0 + bh < 0 or y0 > H:
+                        continue
+                    col = BUILDING_C[(h + theme) % len(BUILDING_C)]
+                    draw.rectangle([x0, y0, x0 + bw, y0 + bh], fill=col)
+                    draw.rectangle([x0, y0, x0 + bw, y0 + bh], outline=BUILDING_EDGE, width=1)
 
 
 def roads(draw, camx, camy):
@@ -87,6 +115,7 @@ for theme in range(6):
     d = ImageDraw.Draw(img)
     tile(img, tex, camx, camy)
     grid(d, camx, camy, base)
+    buildings(d, camx, camy, theme)
     decor(d, camx, camy)
     roads(d, camx, camy)
     img.save(os.path.join(OUT, f"theme{theme}.png"))

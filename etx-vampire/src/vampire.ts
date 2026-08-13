@@ -142,6 +142,19 @@ class Game {
     private asphaltC = lcd.RGB(48, 50, 58);
     private sidewalkC = lcd.RGB(150, 153, 160);
 
+    // building footprints inside each city block: muted roof tones + edge
+    // outline (matches the original city map), seeded per block so the layout
+    // is stable while scrolling and gameplay sprites stay readable
+    private buildingC: number[] = [
+        lcd.RGB(118, 122, 146),
+        lcd.RGB(148, 148, 168),
+        lcd.RGB(98, 108, 136),
+        lcd.RGB(152, 134, 114),
+        lcd.RGB(128, 112, 96),
+        lcd.RGB(112, 104, 126),
+    ];
+    private buildingEdge = lcd.RGB(52, 54, 66);
+
     private animTimer = 0;
     private animFrame = 0;
 
@@ -882,6 +895,8 @@ class Game {
             const sy = Math.floor(gy * step - this.camY);
             lcd.drawLine(0, sy, this.w, sy, SOLID, gridC);
         }
+        // city buildings inside each block (before roads so streets stay clean)
+        this.drawBuildings();
         // static world decorations (grass tufts / rocks / flowers)
         const fc = lcd.drawFilledCircle as unknown as (x: number, y: number, rr: number, flags?: number) => void;
         for (let i = 0; i < this.decor.length; i++) {
@@ -909,6 +924,46 @@ class Game {
         // theme-shift flash: briefly darken the whole screen so the swap is masked
         if (this.themeFade > 0) {
             lcd.drawFilledRectangle(0, 0, this.w, this.h, this.bg1);
+        }
+    }
+
+    private drawBuildings() {
+        // 2x2 building footprints per block interior, seeded from the block
+        // index so the layout is stable while scrolling
+        const s = this.roadSize;
+        const half = Math.floor(this.roadW / 2);
+        const isz = s - this.roadW; // block interior size
+        const gap = 10;
+        const cell = Math.floor((isz - gap) / 2);
+        const bx0 = Math.floor(this.camX / s);
+        const bx1 = Math.floor((this.camX + this.w) / s);
+        const by0 = Math.floor(this.camY / s);
+        const by1 = Math.floor((this.camY + this.h) / s);
+        for (let gx = bx0; gx <= bx1; gx++) {
+            for (let gy = by0; gy <= by1; gy++) {
+                const ix = gx * s + half; // interior origin (world)
+                const iy = gy * s + half;
+                const seed = (gx * 131 + gy * 977) & 0xffff;
+                for (let a = 0; a < 2; a++) {
+                    for (let b = 0; b < 2; b++) {
+                        const h = (seed + a * 7 + b * 11) & 0xf;
+                        const bw = cell - ((h & 1) ? 4 : 10);
+                        const bh = cell - ((h & 2) ? 4 : 10);
+                        const ox = (h >> 2) & 2;
+                        const oy = (h >> 4) & 2;
+                        const x0 = Math.floor(ix + a * (cell + gap) + ox - this.camX);
+                        const y0 = Math.floor(iy + b * (cell + gap) + oy - this.camY);
+                        if (x0 + bw < 0 || x0 > this.w || y0 + bh < 0 || y0 > this.h) {
+                            continue;
+                        }
+                        lcd.drawFilledRectangle(
+                            x0, y0, bw, bh,
+                            this.buildingC[(h + this.theme) % this.buildingC.length]
+                        );
+                        lcd.drawRectangle(x0, y0, bw, bh, this.buildingEdge, 1);
+                    }
+                }
+            }
         }
     }
 
