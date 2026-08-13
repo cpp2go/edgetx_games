@@ -669,7 +669,8 @@ class Game {
                 this.gainExp(g.val);
                 this.gems.splice(i, 1);
                 if (this.state == this.phase.playing && this.gemSndCd <= 0) {
-                    // food.wav is ~0.52s: throttle so the queue doesn't pile up
+                    // gem pickup: short bright ding (score.wav, ~0.22s);
+                    // throttled so the queue doesn't pile up
                     this.gemSndCd = 0.6;
                     this.playSfxFile('food.wav', 1200, 10);
                 }
@@ -701,8 +702,8 @@ class Game {
             this.sparks.splice(0, this.sparks.length - 40);
         }
         if (this.killSndCd <= 0) {
-            // short kill sound: a long die.wav (2.17s) blocks the audio queue
-            // and delays the per-shot sound, desyncing fire from sound
+            // kill: short explosion boom (~0.65s), throttled so the queue
+            // stays in sync with the per-shot sound
             this.killSndCd = 0.5;
             this.playSfxFile('kill.wav', 500 + e.kind * 120, 16);
         }
