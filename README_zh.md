@@ -23,6 +23,7 @@
 | `etx-galuaxian` | **GaLuaxian 太空射击** | Galaga 风格太空射击（带 widget 和音效） |
 | `etx-jumpjump` | **Jump Jump 跳一跳** | 等距 3D 跳跃游戏，带图片、动画、音效和音乐 |
 | `etx-link` | **Link 连连看** | 连连看 / 麻将连线消除 |
+| `etx-mario` | **Super Mario 超级玛丽** | 横版平台跳跃：跑跳踩怪、顶砖吃金币蘑菇、夺旗过关 |
 | `etx-match3` | **Match3 消消乐** | 三消游戏：交换方块连成 3 个以上同色，含炸弹道具 |
 | `etx-mines` | **Minesweeper 扫雷** | 经典扫雷，3 种难度，支持标记旗子和各难度最佳时间 |
 | `etx-racer` | **Racer 竞速赛车** | 街机风格车道赛车 |

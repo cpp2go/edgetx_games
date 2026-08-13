@@ -23,6 +23,7 @@ After unzipping, copy each game's folder into `/GAMES/<name>/` on the radio's SD
 | `etx-galuaxian` | **GaLuaxian** | Galaga-style space shooter (TypeScript-built, with widget + sounds) |
 | `etx-jumpjump` | **Jump Jump** | Isometric 3D jump game with images, animations, SFX & music |
 | `etx-link` | **Link** | Tile-matching puzzle game (LianLianKan / Mahjong Connect style) |
+| `etx-mario` | **Super Mario 超级玛丽** | Side-scrolling platformer: run & jump, stomp goombas, break bricks, grab the flag |
 | `etx-match3` | **Match3** | Match-3 puzzle: swap tiles to line up 3+ same colors, with bomb specials |
 | `etx-mines` | **Minesweeper** | Classic Minesweeper with 3 difficulties, flag mode and per-difficulty best times |
 | `etx-racer` | **Racer** | Arcade lane racer |
